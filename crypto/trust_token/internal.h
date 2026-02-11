@@ -91,25 +91,28 @@ DEFINE_NAMESPACED_STACK_OF(TRUST_TOKEN_PRETOKEN)
 // The following functions implement the corresponding |TRUST_TOKENS_METHOD|
 // functions for |TRUST_TOKENS_experiment_v1|'s PMBTokens construction which
 // uses P-384.
-int pmbtoken_exp1_generate_key(CBB *out_private, CBB *out_public);
+int pmbtoken_exp1_generate_key(CBB *out_private, CBB *out_public,
+                               const void *method_data);
 int pmbtoken_exp1_derive_key_from_secret(CBB *out_private, CBB *out_public,
                                          const uint8_t *secret,
-                                         size_t secret_len);
+                                         size_t secret_len,
+                                         const void *method_data);
 int pmbtoken_exp1_client_key_from_bytes(TRUST_TOKEN_CLIENT_KEY *key,
-                                        const uint8_t *in, size_t len);
+                                        const uint8_t *in, size_t len,
+                                        const void *method_data);
 int pmbtoken_exp1_issuer_key_from_bytes(TRUST_TOKEN_ISSUER_KEY *key,
-                                        const uint8_t *in, size_t len);
-STACK_OF(TRUST_TOKEN_PRETOKEN) *pmbtoken_exp1_blind(CBB *cbb, size_t count,
-                                                    int include_message,
-                                                    const uint8_t *msg,
-                                                    size_t msg_len);
+                                        const uint8_t *in, size_t len,
+                                        const void *method_data);
+STACK_OF(TRUST_TOKEN_PRETOKEN) *pmbtoken_exp1_blind(
+    CBB *cbb, size_t count, int include_message, const uint8_t *msg,
+    size_t msg_len, const TRUST_TOKEN_CLIENT_KEY *key);
 int pmbtoken_exp1_sign(const TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs,
                        size_t num_requested, size_t num_to_issue,
-                       uint8_t private_metadata);
+                       uint8_t private_metadata, const void *method_data);
 STACK_OF(TRUST_TOKEN) *pmbtoken_exp1_unblind(
     const TRUST_TOKEN_CLIENT_KEY *key,
     const STACK_OF(TRUST_TOKEN_PRETOKEN) *pretokens, CBS *cbs, size_t count,
-    uint32_t key_id);
+    uint32_t key_id, const void *method_data);
 int pmbtoken_exp1_read(const TRUST_TOKEN_ISSUER_KEY *key,
                        uint8_t out_nonce[TRUST_TOKEN_NONCE_SIZE],
                        uint8_t *out_private_metadata, const uint8_t *token,
@@ -123,25 +126,28 @@ OPENSSL_EXPORT int pmbtoken_exp1_get_h_for_testing(uint8_t out[97]);
 // The following functions implement the corresponding |TRUST_TOKENS_METHOD|
 // functions for |TRUST_TOKENS_experiment_v2|'s PMBTokens construction which
 // uses P-384.
-int pmbtoken_exp2_generate_key(CBB *out_private, CBB *out_public);
+int pmbtoken_exp2_generate_key(CBB *out_private, CBB *out_public,
+                               const void *method_data);
 int pmbtoken_exp2_derive_key_from_secret(CBB *out_private, CBB *out_public,
                                          const uint8_t *secret,
-                                         size_t secret_len);
+                                         size_t secret_len,
+                                         const void *method_data);
 int pmbtoken_exp2_client_key_from_bytes(TRUST_TOKEN_CLIENT_KEY *key,
-                                        const uint8_t *in, size_t len);
+                                        const uint8_t *in, size_t len,
+                                        const void *method_data);
 int pmbtoken_exp2_issuer_key_from_bytes(TRUST_TOKEN_ISSUER_KEY *key,
-                                        const uint8_t *in, size_t len);
-STACK_OF(TRUST_TOKEN_PRETOKEN) *pmbtoken_exp2_blind(CBB *cbb, size_t count,
-                                                    int include_message,
-                                                    const uint8_t *msg,
-                                                    size_t msg_len);
+                                        const uint8_t *in, size_t len,
+                                        const void *method_data);
+STACK_OF(TRUST_TOKEN_PRETOKEN) *pmbtoken_exp2_blind(
+    CBB *cbb, size_t count, int include_message, const uint8_t *msg,
+    size_t msg_len, const TRUST_TOKEN_CLIENT_KEY *key);
 int pmbtoken_exp2_sign(const TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs,
                        size_t num_requested, size_t num_to_issue,
-                       uint8_t private_metadata);
+                       uint8_t private_metadata, const void *method_data);
 STACK_OF(TRUST_TOKEN) *pmbtoken_exp2_unblind(
     const TRUST_TOKEN_CLIENT_KEY *key,
     const STACK_OF(TRUST_TOKEN_PRETOKEN) *pretokens, CBS *cbs, size_t count,
-    uint32_t key_id);
+    uint32_t key_id, const void *method_data);
 int pmbtoken_exp2_read(const TRUST_TOKEN_ISSUER_KEY *key,
                        uint8_t out_nonce[TRUST_TOKEN_NONCE_SIZE],
                        uint8_t *out_private_metadata, const uint8_t *token,
@@ -155,25 +161,28 @@ OPENSSL_EXPORT int pmbtoken_exp2_get_h_for_testing(uint8_t out[97]);
 // The following functions implement the corresponding |TRUST_TOKENS_METHOD|
 // functions for |TRUST_TOKENS_pst_v1|'s PMBTokens construction which uses
 // P-384.
-int pmbtoken_pst1_generate_key(CBB *out_private, CBB *out_public);
+int pmbtoken_pst1_generate_key(CBB *out_private, CBB *out_public,
+                               const void *method_data);
 int pmbtoken_pst1_derive_key_from_secret(CBB *out_private, CBB *out_public,
                                          const uint8_t *secret,
-                                         size_t secret_len);
+                                         size_t secret_len,
+                                         const void *method_data);
 int pmbtoken_pst1_client_key_from_bytes(TRUST_TOKEN_CLIENT_KEY *key,
-                                        const uint8_t *in, size_t len);
+                                        const uint8_t *in, size_t len,
+                                        const void *method_data);
 int pmbtoken_pst1_issuer_key_from_bytes(TRUST_TOKEN_ISSUER_KEY *key,
-                                        const uint8_t *in, size_t len);
-STACK_OF(TRUST_TOKEN_PRETOKEN) *pmbtoken_pst1_blind(CBB *cbb, size_t count,
-                                                    int include_message,
-                                                    const uint8_t *msg,
-                                                    size_t msg_len);
+                                        const uint8_t *in, size_t len,
+                                        const void *method_data);
+STACK_OF(TRUST_TOKEN_PRETOKEN) *pmbtoken_pst1_blind(
+    CBB *cbb, size_t count, int include_message, const uint8_t *msg,
+    size_t msg_len, const TRUST_TOKEN_CLIENT_KEY *key);
 int pmbtoken_pst1_sign(const TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs,
                        size_t num_requested, size_t num_to_issue,
-                       uint8_t private_metadata);
+                       uint8_t private_metadata, const void *method_data);
 STACK_OF(TRUST_TOKEN) *pmbtoken_pst1_unblind(
     const TRUST_TOKEN_CLIENT_KEY *key,
     const STACK_OF(TRUST_TOKEN_PRETOKEN) *pretokens, CBS *cbs, size_t count,
-    uint32_t key_id);
+    uint32_t key_id, const void *method_data);
 int pmbtoken_pst1_read(const TRUST_TOKEN_ISSUER_KEY *key,
                        uint8_t out_nonce[TRUST_TOKEN_NONCE_SIZE],
                        uint8_t *out_private_metadata, const uint8_t *token,
@@ -197,24 +206,27 @@ OPENSSL_EXPORT int pmbtoken_pst1_get_h_for_testing(uint8_t out[97]);
 // The following functions implement the corresponding |TRUST_TOKENS_METHOD|
 // functions for |TRUST_TOKENS_experiment_v2|'s VOPRF construction which uses
 // P-384.
-int voprf_exp2_generate_key(CBB *out_private, CBB *out_public);
+int voprf_exp2_generate_key(CBB *out_private, CBB *out_public,
+                            const void *method_data);
 int voprf_exp2_derive_key_from_secret(CBB *out_private, CBB *out_public,
-                                      const uint8_t *secret, size_t secret_len);
+                                      const uint8_t *secret, size_t secret_len,
+                                      const void *method_data);
 int voprf_exp2_client_key_from_bytes(TRUST_TOKEN_CLIENT_KEY *key,
-                                     const uint8_t *in, size_t len);
+                                     const uint8_t *in, size_t len,
+                                     const void *method_data);
 int voprf_exp2_issuer_key_from_bytes(TRUST_TOKEN_ISSUER_KEY *key,
-                                     const uint8_t *in, size_t len);
-STACK_OF(TRUST_TOKEN_PRETOKEN) *voprf_exp2_blind(CBB *cbb, size_t count,
-                                                 int include_message,
-                                                 const uint8_t *msg,
-                                                 size_t msg_len);
+                                     const uint8_t *in, size_t len,
+                                     const void *method_data);
+STACK_OF(TRUST_TOKEN_PRETOKEN) *voprf_exp2_blind(
+    CBB *cbb, size_t count, int include_message, const uint8_t *msg,
+    size_t msg_len, const TRUST_TOKEN_CLIENT_KEY *key);
 int voprf_exp2_sign(const TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs,
                     size_t num_requested, size_t num_to_issue,
-                    uint8_t private_metadata);
+                    uint8_t private_metadata, const void *method_data);
 STACK_OF(TRUST_TOKEN) *voprf_exp2_unblind(
     const TRUST_TOKEN_CLIENT_KEY *key,
     const STACK_OF(TRUST_TOKEN_PRETOKEN) *pretokens, CBS *cbs, size_t count,
-    uint32_t key_id);
+    uint32_t key_id, const void *method_data);
 int voprf_exp2_read(const TRUST_TOKEN_ISSUER_KEY *key,
                     uint8_t out_nonce[TRUST_TOKEN_NONCE_SIZE],
                     uint8_t *out_private_metadata, const uint8_t *token,
@@ -223,20 +235,23 @@ int voprf_exp2_read(const TRUST_TOKEN_ISSUER_KEY *key,
 
 // The following functions implement the corresponding |TRUST_TOKENS_METHOD|
 // functions for |TRUST_TOKENS_pst_v1|'s VOPRF construction which uses P-384.
-int voprf_pst1_generate_key(CBB *out_private, CBB *out_public);
+int voprf_pst1_generate_key(CBB *out_private, CBB *out_public,
+                            const void *method_data);
 int voprf_pst1_derive_key_from_secret(CBB *out_private, CBB *out_public,
-                                      const uint8_t *secret, size_t secret_len);
+                                      const uint8_t *secret, size_t secret_len,
+                                      const void *method_data);
 int voprf_pst1_client_key_from_bytes(TRUST_TOKEN_CLIENT_KEY *key,
-                                     const uint8_t *in, size_t len);
+                                     const uint8_t *in, size_t len,
+                                     const void *method_data);
 int voprf_pst1_issuer_key_from_bytes(TRUST_TOKEN_ISSUER_KEY *key,
-                                     const uint8_t *in, size_t len);
-STACK_OF(TRUST_TOKEN_PRETOKEN) *voprf_pst1_blind(CBB *cbb, size_t count,
-                                                 int include_message,
-                                                 const uint8_t *msg,
-                                                 size_t msg_len);
+                                     const uint8_t *in, size_t len,
+                                     const void *method_data);
+STACK_OF(TRUST_TOKEN_PRETOKEN) *voprf_pst1_blind(
+    CBB *cbb, size_t count, int include_message, const uint8_t *msg,
+    size_t msg_len, const TRUST_TOKEN_CLIENT_KEY *key);
 int voprf_pst1_sign(const TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs,
                     size_t num_requested, size_t num_to_issue,
-                    uint8_t private_metadata);
+                    uint8_t private_metadata, const void *method_data);
 OPENSSL_EXPORT int voprf_pst1_sign_with_proof_scalar_for_testing(
     const TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs, size_t num_requested,
     size_t num_to_issue, uint8_t private_metadata,
@@ -244,7 +259,7 @@ OPENSSL_EXPORT int voprf_pst1_sign_with_proof_scalar_for_testing(
 STACK_OF(TRUST_TOKEN) *voprf_pst1_unblind(
     const TRUST_TOKEN_CLIENT_KEY *key,
     const STACK_OF(TRUST_TOKEN_PRETOKEN) *pretokens, CBS *cbs, size_t count,
-    uint32_t key_id);
+    uint32_t key_id, const void *method_data);
 int voprf_pst1_read(const TRUST_TOKEN_ISSUER_KEY *key,
                     uint8_t out_nonce[TRUST_TOKEN_NONCE_SIZE],
                     uint8_t *out_private_metadata, const uint8_t *token,
@@ -259,39 +274,47 @@ BSSL_NAMESPACE_END
 
 struct trust_token_method_st {
   // generate_key generates a fresh keypair and writes their serialized
-  // forms into |out_private| and |out_public|. It returns one on success and
-  // zero on failure.
-  int (*generate_key)(CBB *out_private, CBB *out_public);
+  // forms into |out_private| and |out_public|. |method_data| is opaque
+  // per-context data (e.g., ATHM_CONTEXT_DATA for ATHM methods, NULL for
+  // others). It returns one on success and zero on failure.
+  int (*generate_key)(CBB *out_private, CBB *out_public,
+                      const void *method_data);
 
   // derive_key_from_secret deterministically derives a keypair based on
   // |secret| and writes their serialized forms into |out_private| and
   // |out_public|. It returns one on success and zero on failure.
   int (*derive_key_from_secret)(CBB *out_private, CBB *out_public,
-                                const uint8_t *secret, size_t secret_len);
+                                const uint8_t *secret, size_t secret_len,
+                                const void *method_data);
 
   // client_key_from_bytes decodes a client key from |in| and sets |key|
   // to the resulting key. It returns one on success and zero
-  // on failure.
+  // on failure. |method_data| is opaque per-method data (e.g.,
+  // ATHM_CONTEXT_DATA for ATHM methods).
   int (*client_key_from_bytes)(bssl::TRUST_TOKEN_CLIENT_KEY *key,
-                               const uint8_t *in, size_t len);
+                               const uint8_t *in, size_t len,
+                               const void *method_data);
 
   // issuer_key_from_bytes decodes a issuer key from |in| and sets |key|
   // to the resulting key. It returns one on success and zero
   // on failure.
   int (*issuer_key_from_bytes)(bssl::TRUST_TOKEN_ISSUER_KEY *key,
-                               const uint8_t *in, size_t len);
+                               const uint8_t *in, size_t len,
+                               const void *method_data);
 
   // blind generates a new issuance request for |count| tokens. If
   // |include_message| is set, then |msg| is used to derive the token nonces. On
   // success, it returns a newly-allocated |STACK_OF(TRUST_TOKEN_PRETOKEN)| and
   // writes a request to the issuer to |cbb|. On failure, it returns NULL. The
   // |STACK_OF(TRUST_TOKEN_PRETOKEN)|s should be passed to |pmbtoken_unblind|
-  // when the server responds.
+  // when the server responds. |key| is an optional client key used by methods
+  // (such as ATHM) that require it during blinding; for other methods it is
+  // NULL.
   //
   // This function implements the AT.Usr0 operation.
-  bssl::StackOfTrustTokenPretoken *(*blind)(CBB *cbb, size_t count,
-                                            int include_message,
-                                            const uint8_t *msg, size_t msg_len);
+  bssl::StackOfTrustTokenPretoken *(*blind)(
+      CBB *cbb, size_t count, int include_message, const uint8_t *msg,
+      size_t msg_len, const bssl::TRUST_TOKEN_CLIENT_KEY *key);
 
   // sign parses a request for |num_requested| tokens from |cbs| and
   // issues |num_to_issue| tokens with |key| and a private metadata value of
@@ -301,7 +324,7 @@ struct trust_token_method_st {
   // This function implements the AT.Sig operation.
   int (*sign)(const bssl::TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs,
               size_t num_requested, size_t num_to_issue,
-              uint8_t private_metadata);
+              uint8_t private_metadata, const void *method_data);
 
   // unblind processes an issuance response for |count| tokens from |cbs|
   // and unblinds the signed tokens. |pretokens| are the pre-tokens returned
@@ -314,7 +337,7 @@ struct trust_token_method_st {
   STACK_OF(TRUST_TOKEN) *(*unblind)(
       const bssl::TRUST_TOKEN_CLIENT_KEY *key,
       const bssl::StackOfTrustTokenPretoken *pretokens, CBS *cbs, size_t count,
-      uint32_t key_id);
+      uint32_t key_id, const void *method_data);
 
   // read parses a token from |token| and verifies it using |key|. If
   // |include_message| is set, then the nonce is derived from |msg| and the salt
@@ -331,11 +354,20 @@ struct trust_token_method_st {
   // whether the construction supports private metadata.
   int has_private_metadata;
 
+  // max_private_metadata is the maximum value (exclusive) of the
+  // private_metadata parameter. For PMBTokens this is 2 (values 0, 1).
+  // For VOPRF this is 1 (only value 0). For ATHM this is nBuckets.
+  size_t max_private_metadata;
+
   // max keys that can be configured.
   size_t max_keys;
 
   // whether the SRR is part of the protocol.
   int has_srr;
+
+  // whether this is an ATHM method (requires deployment_id, shared Z for
+  // multi-key).
+  int is_athm;
 };
 
 BSSL_NAMESPACE_BEGIN

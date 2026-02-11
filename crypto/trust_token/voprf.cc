@@ -196,11 +196,10 @@ static int voprf_issuer_key_from_bytes(const VOPRF_METHOD *method,
   return 1;
 }
 
-static STACK_OF(TRUST_TOKEN_PRETOKEN) *voprf_blind(const VOPRF_METHOD *method,
-                                                   CBB *cbb, size_t count,
-                                                   int include_message,
-                                                   const uint8_t *msg,
-                                                   size_t msg_len) {
+static STACK_OF(TRUST_TOKEN_PRETOKEN) *voprf_blind(
+    const VOPRF_METHOD *method, CBB *cbb, size_t count, int include_message,
+    const uint8_t *msg, size_t msg_len, const TRUST_TOKEN_CLIENT_KEY *key) {
+  (void)key;  // Unused by VOPRF.
   SHA512_CTX hash_ctx;
 
   const EC_GROUP *group = method->group_func();
@@ -1121,38 +1120,46 @@ static int voprf_exp2_hash_to_scalar(const EC_GROUP *group, EC_SCALAR *out,
 static VOPRF_METHOD voprf_exp2_method = {
     EC_group_p384, voprf_exp2_hash_to_group, voprf_exp2_hash_to_scalar};
 
-int bssl::voprf_exp2_generate_key(CBB *out_private, CBB *out_public) {
+int bssl::voprf_exp2_generate_key(CBB *out_private, CBB *out_public,
+                                  const void *method_data) {
+  (void)method_data;
   return voprf_generate_key(&voprf_exp2_method, out_private, out_public);
 }
 
 int bssl::voprf_exp2_derive_key_from_secret(CBB *out_private, CBB *out_public,
                                             const uint8_t *secret,
-                                            size_t secret_len) {
+                                            size_t secret_len,
+                                            const void *method_data) {
+  (void)method_data;
   return voprf_derive_key_from_secret(&voprf_exp2_method, out_private,
                                       out_public, secret, secret_len);
 }
 
 int bssl::voprf_exp2_client_key_from_bytes(TRUST_TOKEN_CLIENT_KEY *key,
-                                           const uint8_t *in, size_t len) {
+                                           const uint8_t *in, size_t len,
+                                           const void *method_data) {
+  (void)method_data;
   return voprf_client_key_from_bytes(&voprf_exp2_method, key, in, len);
 }
 
 int bssl::voprf_exp2_issuer_key_from_bytes(TRUST_TOKEN_ISSUER_KEY *key,
-                                           const uint8_t *in, size_t len) {
+                                           const uint8_t *in, size_t len,
+                                           const void *method_data) {
+  (void)method_data;
   return voprf_issuer_key_from_bytes(&voprf_exp2_method, key, in, len);
 }
 
-STACK_OF(TRUST_TOKEN_PRETOKEN) *bssl::voprf_exp2_blind(CBB *cbb, size_t count,
-                                                       int include_message,
-                                                       const uint8_t *msg,
-                                                       size_t msg_len) {
+STACK_OF(TRUST_TOKEN_PRETOKEN) *bssl::voprf_exp2_blind(
+    CBB *cbb, size_t count, int include_message, const uint8_t *msg,
+    size_t msg_len, const TRUST_TOKEN_CLIENT_KEY *key) {
   return voprf_blind(&voprf_exp2_method, cbb, count, include_message, msg,
-                     msg_len);
+                     msg_len, key);
 }
 
 int bssl::voprf_exp2_sign(const TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs,
                           size_t num_requested, size_t num_to_issue,
-                          uint8_t private_metadata) {
+                          uint8_t private_metadata, const void *method_data) {
+  (void)method_data;
   if (private_metadata != 0) {
     return 0;
   }
@@ -1163,7 +1170,8 @@ int bssl::voprf_exp2_sign(const TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs,
 STACK_OF(TRUST_TOKEN) *bssl::voprf_exp2_unblind(
     const TRUST_TOKEN_CLIENT_KEY *key,
     const STACK_OF(TRUST_TOKEN_PRETOKEN) *pretokens, CBS *cbs, size_t count,
-    uint32_t key_id) {
+    uint32_t key_id, const void *method_data) {
+  (void)method_data;
   return voprf_unblind_tt(&voprf_exp2_method, key, pretokens, cbs, count,
                           key_id);
 }
@@ -1197,38 +1205,46 @@ static int voprf_pst1_hash_to_scalar(const EC_GROUP *group, EC_SCALAR *out,
 static VOPRF_METHOD voprf_pst1_method = {
     EC_group_p384, voprf_pst1_hash_to_group, voprf_pst1_hash_to_scalar};
 
-int bssl::voprf_pst1_generate_key(CBB *out_private, CBB *out_public) {
+int bssl::voprf_pst1_generate_key(CBB *out_private, CBB *out_public,
+                                  const void *method_data) {
+  (void)method_data;
   return voprf_generate_key(&voprf_pst1_method, out_private, out_public);
 }
 
 int bssl::voprf_pst1_derive_key_from_secret(CBB *out_private, CBB *out_public,
                                             const uint8_t *secret,
-                                            size_t secret_len) {
+                                            size_t secret_len,
+                                            const void *method_data) {
+  (void)method_data;
   return voprf_derive_key_from_secret(&voprf_pst1_method, out_private,
                                       out_public, secret, secret_len);
 }
 
 int bssl::voprf_pst1_client_key_from_bytes(TRUST_TOKEN_CLIENT_KEY *key,
-                                           const uint8_t *in, size_t len) {
+                                           const uint8_t *in, size_t len,
+                                           const void *method_data) {
+  (void)method_data;
   return voprf_client_key_from_bytes(&voprf_pst1_method, key, in, len);
 }
 
 int bssl::voprf_pst1_issuer_key_from_bytes(TRUST_TOKEN_ISSUER_KEY *key,
-                                           const uint8_t *in, size_t len) {
+                                           const uint8_t *in, size_t len,
+                                           const void *method_data) {
+  (void)method_data;
   return voprf_issuer_key_from_bytes(&voprf_pst1_method, key, in, len);
 }
 
-STACK_OF(TRUST_TOKEN_PRETOKEN) *bssl::voprf_pst1_blind(CBB *cbb, size_t count,
-                                                       int include_message,
-                                                       const uint8_t *msg,
-                                                       size_t msg_len) {
+STACK_OF(TRUST_TOKEN_PRETOKEN) *bssl::voprf_pst1_blind(
+    CBB *cbb, size_t count, int include_message, const uint8_t *msg,
+    size_t msg_len, const TRUST_TOKEN_CLIENT_KEY *key) {
   return voprf_blind(&voprf_pst1_method, cbb, count, include_message, msg,
-                     msg_len);
+                     msg_len, key);
 }
 
 int bssl::voprf_pst1_sign(const TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs,
                           size_t num_requested, size_t num_to_issue,
-                          uint8_t private_metadata) {
+                          uint8_t private_metadata, const void *method_data) {
+  (void)method_data;
   if (private_metadata != 0) {
     return 0;
   }
@@ -1252,7 +1268,8 @@ int bssl::voprf_pst1_sign_with_proof_scalar_for_testing(
 STACK_OF(TRUST_TOKEN) *bssl::voprf_pst1_unblind(
     const TRUST_TOKEN_CLIENT_KEY *key,
     const STACK_OF(TRUST_TOKEN_PRETOKEN) *pretokens, CBS *cbs, size_t count,
-    uint32_t key_id) {
+    uint32_t key_id, const void *method_data) {
+  (void)method_data;
   return voprf_unblind(&voprf_pst1_method, key, pretokens, cbs, count, key_id);
 }
 
