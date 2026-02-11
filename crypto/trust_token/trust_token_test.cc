@@ -599,13 +599,228 @@ TEST(TrustTokenTest, PSTV1VOPRFTestVector3) {
             Bytes(CBB_data(response.get()), CBB_len(response.get())));
 }
 
+// ATHM test vectors from draft-yun-cfrg-athm.
+
+TEST(TrustTokenTest, ATHMHGeneratorTestVector) {
+  // Verify H derivation formula matches draft-yun-cfrg-athm test vectors.
+  //
+  // Per the spec, Section 3.1:
+  //   generatorH = HashToGroup(SerializeElement(generatorG), "generatorH")
+  //   DST = "HashToGroup-" || contextString || "generatorH"
+  //   contextString = "ATHMV1-P256-<nBuckets>-<deploymentId>"
+  //
+  // Test vector params:
+  //   deployment_id = "test_vector_deployment_id"
+  //   nBuckets = 4
+  //   contextString = "ATHMV1-P256-4-test_vector_deployment_id"
+  //   DST = "HashToGroup-ATHMV1-P256-4-test_vector_deployment_idgeneratorH"
+  //   msg = compressed encoding of P-256 generator G
+
+  // Expected H from spec test vectors (compressed).
+  static const uint8_t kExpectedHCompressed[] = {
+      0x02, 0x36, 0x1f, 0xc6, 0x83, 0x1d, 0x37, 0x96, 0xa8, 0x26, 0x12,
+      0xdf, 0xfb, 0x23, 0x1e, 0xc6, 0x72, 0x53, 0xb2, 0xf6, 0x9d, 0xbb,
+      0x12, 0x4c, 0x9a, 0x0f, 0x99, 0x17, 0xb4, 0xe3, 0x18, 0x0d, 0x03};
+
+  // DST for the test vector deployment_id.
+  static const uint8_t kDST[] =
+      "HashToGroup-ATHMV1-P256-4-test_vector_deployment_idgeneratorH";
+
+  // Compressed encoding of the P-256 generator G (NIST standard value).
+  static const uint8_t kGeneratorGCompressed[] = {
+      0x03, 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc,
+      0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2, 0x77, 0x03, 0x7d, 0x81, 0x2d,
+      0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2, 0x96};
+
+  const EC_GROUP *group = EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1);
+  ASSERT_TRUE(group);
+
+  // Compute H using the spec's formula.
+  EC_JACOBIAN h_j;
+  ASSERT_TRUE(ec_hash_to_curve_p256_xmd_sha256_sswu(
+      group, &h_j, kDST, sizeof(kDST) - 1, kGeneratorGCompressed,
+      sizeof(kGeneratorGCompressed)));
+
+  EC_AFFINE h_a;
+  ASSERT_TRUE(ec_jacobian_to_affine(group, &h_a, &h_j));
+
+  uint8_t h_uncompressed[65];
+  ASSERT_EQ(65u, ec_point_to_bytes(group, &h_a, POINT_CONVERSION_UNCOMPRESSED,
+                                   h_uncompressed, sizeof(h_uncompressed)));
+
+  // Convert expected H from compressed to uncompressed for comparison.
+  uint8_t expected_uncompressed[EC_MAX_UNCOMPRESSED];
+  size_t expected_len;
+  ASSERT_TRUE(ec_point_uncompressed_from_compressed(
+      group, expected_uncompressed, &expected_len, kExpectedHCompressed,
+      sizeof(kExpectedHCompressed)));
+
+  EXPECT_EQ(Bytes(h_uncompressed, 65),
+            Bytes(expected_uncompressed, expected_len));
+}
+
+TEST(TrustTokenTest, ATHMVerifyTokenTestVector) {
+  // Private key scalars from draft-yun-cfrg-athm test vectors.
+  // Spec serialization order: x, y, z, r_x, r_y.
+  static const uint8_t kPrivKeyX[] = {
+      0x02, 0x3f, 0x37, 0x20, 0x3a, 0x24, 0x76, 0xc4, 0x25, 0x66, 0xa6,
+      0x1c, 0xc5, 0x5c, 0x3c, 0xa8, 0x75, 0xdb, 0xb4, 0xcc, 0x41, 0xc0,
+      0xde, 0xb7, 0x89, 0xf8, 0xe7, 0xbf, 0x88, 0x18, 0x36, 0x38};
+  static const uint8_t kPrivKeyY[] = {
+      0x1e, 0xcc, 0x36, 0x86, 0xb6, 0x0e, 0xe3, 0xb8, 0x4b, 0x6c, 0x7d,
+      0x32, 0x1d, 0x70, 0xd5, 0xc0, 0x6e, 0x9d, 0xac, 0x63, 0xa4, 0xd0,
+      0xa7, 0x9d, 0x73, 0x1b, 0x17, 0xc0, 0xd0, 0x4d, 0x03, 0x0d};
+  static const uint8_t kPrivKeyZ[] = {
+      0x01, 0x27, 0x4d, 0xd1, 0xee, 0x52, 0x16, 0xc2, 0x04, 0xfb, 0x69,
+      0x8d, 0xae, 0xa4, 0x5b, 0x52, 0xe9, 0x8b, 0x6f, 0x0f, 0xdd, 0x04,
+      0x6d, 0xcc, 0x3a, 0x86, 0xbb, 0x07, 0x9e, 0x36, 0xf0, 0x24};
+  static const uint8_t kPrivKeyRx[] = {
+      0x14, 0x7e, 0x4b, 0x87, 0x5d, 0x59, 0xa9, 0xef, 0x43, 0x2b, 0x8e,
+      0x45, 0xb0, 0x4a, 0x98, 0xc4, 0xb1, 0x9d, 0xc8, 0xc7, 0x47, 0x5f,
+      0x5d, 0xce, 0x42, 0x59, 0xb4, 0xca, 0x2d, 0xd6, 0x72, 0x82};
+  static const uint8_t kPrivKeyRy[] = {
+      0xb4, 0x78, 0xb8, 0x70, 0x2c, 0x1d, 0x25, 0x69, 0xfe, 0x52, 0xe5,
+      0xd7, 0xdb, 0xad, 0xec, 0x62, 0x23, 0xcd, 0x10, 0xfd, 0x4b, 0x50,
+      0x4d, 0xab, 0xac, 0x7f, 0xff, 0x23, 0xa3, 0x73, 0x63, 0xd1};
+
+  // Token from test vectors: t (32B) + P compressed (33B) + Q compressed (33B).
+  // hidden_metadata = 3.
+  static const uint8_t kTokenT[] = {
+      0xb7, 0xd8, 0x31, 0x0e, 0x18, 0x99, 0xa7, 0x48, 0xb3, 0x00, 0x0e,
+      0x52, 0x2d, 0x32, 0x0b, 0x29, 0x88, 0x0e, 0x07, 0x11, 0x9f, 0x1a,
+      0x77, 0x6b, 0x63, 0x9b, 0x3c, 0xe0, 0xa4, 0xa0, 0x1a, 0x9f};
+  static const uint8_t kTokenPCompressed[] = {
+      0x02, 0x12, 0x3d, 0x0c, 0x12, 0x5d, 0xe3, 0xd1, 0x22, 0x57, 0x7b,
+      0x33, 0x5a, 0x8f, 0x66, 0x16, 0xd7, 0x35, 0xe9, 0x40, 0x0b, 0x60,
+      0xdc, 0xde, 0x57, 0xef, 0xf0, 0x56, 0xe9, 0xcb, 0xbd, 0x2b, 0x3c};
+  static const uint8_t kTokenQCompressed[] = {
+      0x03, 0xa0, 0x62, 0xc5, 0xb4, 0x15, 0x07, 0xe1, 0xfe, 0x08, 0x9d,
+      0x0c, 0x3b, 0x41, 0x32, 0xd8, 0x4e, 0xce, 0x1d, 0x4a, 0x9d, 0xfc,
+      0x0b, 0xf4, 0xf0, 0x58, 0x8d, 0x66, 0x0f, 0x25, 0xbd, 0xf6, 0xcf};
+
+  // Expected public key points (compressed) from test vectors.
+  static const uint8_t kExpectedZCompressed[] = {
+      0x03, 0x2b, 0x80, 0x02, 0x4e, 0xe8, 0x18, 0xd7, 0x09, 0x19, 0x67,
+      0x80, 0xa8, 0x4a, 0xff, 0xe0, 0x87, 0x89, 0xf5, 0x71, 0x52, 0x9f,
+      0xcc, 0xc1, 0xac, 0xce, 0x07, 0xee, 0xa2, 0xdf, 0x2f, 0xc6, 0x5f};
+  static const uint8_t kExpectedCxCompressed[] = {
+      0x03, 0x5f, 0x6a, 0x6e, 0xb8, 0x4b, 0xea, 0x9c, 0x13, 0x61, 0x11,
+      0x94, 0x62, 0xbd, 0xa8, 0x63, 0xc4, 0x7c, 0x3b, 0x43, 0xe5, 0x3e,
+      0x9e, 0x5e, 0x7a, 0x87, 0x96, 0xba, 0x1b, 0x92, 0x4d, 0x09, 0x3e};
+  static const uint8_t kExpectedCyCompressed[] = {
+      0x03, 0xb7, 0xf1, 0x6d, 0xf0, 0xad, 0x82, 0xcb, 0xd8, 0xbd, 0x6a,
+      0x04, 0xed, 0x42, 0x71, 0x07, 0xad, 0xf5, 0xa3, 0xd4, 0xba, 0x84,
+      0x0e, 0x9b, 0x34, 0x1a, 0x3b, 0xad, 0xc1, 0xd9, 0xb7, 0xfe, 0x19};
+
+  const EC_GROUP *group = EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1);
+  ASSERT_TRUE(group);
+
+  // Load the private key scalars directly into the issuer key struct.
+  // athm_v1_read only needs x0=x, y0=y, xs=z for token verification.
+  // We bypass athm_v1_issuer_key_from_bytes because it computes public keys
+  // using the v1 method's H (empty deployment_id), but the test vectors use
+  // deployment_id="test_vector_deployment_id".
+  TRUST_TOKEN_ISSUER_KEY issuer_key;
+  OPENSSL_memset(&issuer_key, 0, sizeof(issuer_key));
+  ASSERT_TRUE(
+      ec_scalar_from_bytes(group, &issuer_key.x0, kPrivKeyX, 32));   // x
+  ASSERT_TRUE(
+      ec_scalar_from_bytes(group, &issuer_key.y0, kPrivKeyY, 32));   // y
+  ASSERT_TRUE(
+      ec_scalar_from_bytes(group, &issuer_key.x1, kPrivKeyRx, 32));  // r_x
+  ASSERT_TRUE(
+      ec_scalar_from_bytes(group, &issuer_key.y1, kPrivKeyRy, 32));  // r_y
+  ASSERT_TRUE(
+      ec_scalar_from_bytes(group, &issuer_key.xs, kPrivKeyZ, 32));   // z
+
+  // Verify Z = z*G matches spec.
+  EC_JACOBIAN Z_j;
+  ASSERT_TRUE(ec_point_mul_scalar_base(group, &Z_j, &issuer_key.xs));
+  EC_AFFINE Z_a;
+  ASSERT_TRUE(ec_jacobian_to_affine(group, &Z_a, &Z_j));
+  uint8_t Z_computed[65];
+  ASSERT_EQ(65u, ec_point_to_bytes(group, &Z_a, POINT_CONVERSION_UNCOMPRESSED,
+                                   Z_computed, sizeof(Z_computed)));
+  uint8_t Z_expected[EC_MAX_UNCOMPRESSED];
+  size_t Z_len;
+  ASSERT_TRUE(ec_point_uncompressed_from_compressed(
+      group, Z_expected, &Z_len, kExpectedZCompressed,
+      sizeof(kExpectedZCompressed)));
+  EXPECT_EQ(Bytes(Z_computed, 65), Bytes(Z_expected, Z_len));
+
+  // Verify C_x = x*G + r_x*H and C_y = y*G + r_y*H using the spec's H.
+  // First compute H with the test vector's deployment_id.
+  static const uint8_t kDST[] =
+      "HashToGroup-ATHMV1-P256-4-test_vector_deployment_idgeneratorH";
+  static const uint8_t kGeneratorGCompressed[] = {
+      0x03, 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc,
+      0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2, 0x77, 0x03, 0x7d, 0x81, 0x2d,
+      0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2, 0x96};
+  EC_JACOBIAN H_j;
+  ASSERT_TRUE(ec_hash_to_curve_p256_xmd_sha256_sswu(
+      group, &H_j, kDST, sizeof(kDST) - 1, kGeneratorGCompressed,
+      sizeof(kGeneratorGCompressed)));
+
+  // C_x = x*G + r_x*H
+  EC_JACOBIAN xG, rxH, Cx_j;
+  ASSERT_TRUE(ec_point_mul_scalar_base(group, &xG, &issuer_key.x0));
+  ASSERT_TRUE(ec_point_mul_scalar(group, &rxH, &H_j, &issuer_key.x1));
+  group->meth->add(group, &Cx_j, &xG, &rxH);
+  EC_AFFINE Cx_a;
+  ASSERT_TRUE(ec_jacobian_to_affine(group, &Cx_a, &Cx_j));
+  uint8_t Cx_computed[65];
+  ASSERT_EQ(65u, ec_point_to_bytes(group, &Cx_a, POINT_CONVERSION_UNCOMPRESSED,
+                                   Cx_computed, sizeof(Cx_computed)));
+  uint8_t Cx_expected[EC_MAX_UNCOMPRESSED];
+  size_t Cx_len;
+  ASSERT_TRUE(ec_point_uncompressed_from_compressed(
+      group, Cx_expected, &Cx_len, kExpectedCxCompressed,
+      sizeof(kExpectedCxCompressed)));
+  EXPECT_EQ(Bytes(Cx_computed, 65), Bytes(Cx_expected, Cx_len));
+
+  // C_y = y*G + r_y*H
+  EC_JACOBIAN yG, ryH, Cy_j;
+  ASSERT_TRUE(ec_point_mul_scalar_base(group, &yG, &issuer_key.y0));
+  ASSERT_TRUE(ec_point_mul_scalar(group, &ryH, &H_j, &issuer_key.y1));
+  group->meth->add(group, &Cy_j, &yG, &ryH);
+  EC_AFFINE Cy_a;
+  ASSERT_TRUE(ec_jacobian_to_affine(group, &Cy_a, &Cy_j));
+  uint8_t Cy_computed[65];
+  ASSERT_EQ(65u, ec_point_to_bytes(group, &Cy_a, POINT_CONVERSION_UNCOMPRESSED,
+                                   Cy_computed, sizeof(Cy_computed)));
+  uint8_t Cy_expected[EC_MAX_UNCOMPRESSED];
+  size_t Cy_len;
+  ASSERT_TRUE(ec_point_uncompressed_from_compressed(
+      group, Cy_expected, &Cy_len, kExpectedCyCompressed,
+      sizeof(kExpectedCyCompressed)));
+  EXPECT_EQ(Bytes(Cy_computed, 65), Bytes(Cy_expected, Cy_len));
+
+  // Construct the token in compressed format: t (32B) + P (33B) + Q (33B).
+  uint8_t token[32 + 33 + 33];
+  OPENSSL_memcpy(token, kTokenT, 32);
+  OPENSSL_memcpy(token + 32, kTokenPCompressed, 33);
+  OPENSSL_memcpy(token + 32 + 33, kTokenQCompressed, 33);
+
+  // Verify the token. Expected hidden_metadata = 3.
+  uint8_t nonce[TRUST_TOKEN_NONCE_SIZE];
+  uint8_t private_metadata;
+  ASSERT_TRUE(athm_v1_read(&issuer_key, nonce, &private_metadata, token,
+                            sizeof(token), /*include_message=*/0, nullptr, 0));
+  EXPECT_EQ(3u, private_metadata);
+}
+
 static std::vector<const TRUST_TOKEN_METHOD *> AllMethods() {
   return {
     TRUST_TOKEN_experiment_v1(),
     TRUST_TOKEN_experiment_v2_voprf(),
     TRUST_TOKEN_experiment_v2_pmb(),
     TRUST_TOKEN_pst_v1_voprf(),
-    TRUST_TOKEN_pst_v1_pmb()
+    TRUST_TOKEN_pst_v1_pmb(),
+    TRUST_TOKEN_athm_v1(),
+    // TRUST_TOKEN_athm_v1_multikey() is not included here because the generic
+    // SetupContexts() generates independent keys, violating the multi-key ATHM
+    // constraint that all keys share the same z. Multi-key ATHM is tested by
+    // dedicated ATHMMultiKey* tests.
   };
 }
 
@@ -633,13 +848,29 @@ class TrustTokenProtocolTestBase : public ::testing::Test {
     issuer.reset(TRUST_TOKEN_ISSUER_new(method(), issuer_max_batchsize));
     ASSERT_TRUE(issuer);
 
+    // ATHM methods require deployment_id to be set before adding keys.
+    if (method()->is_athm) {
+      ASSERT_TRUE(
+          TRUST_TOKEN_CLIENT_set_deployment_id(client.get(), nullptr, 0));
+      ASSERT_TRUE(
+          TRUST_TOKEN_ISSUER_set_deployment_id(issuer.get(), nullptr, 0));
+    }
+
     for (size_t i = 0; i < method()->max_keys; i++) {
       uint8_t priv_key[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
       uint8_t pub_key[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
       size_t priv_key_len, pub_key_len, key_index;
-      ASSERT_TRUE(TRUST_TOKEN_generate_key(
-          method(), priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
-          pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, KeyID(i)));
+      if (method()->is_athm) {
+        ASSERT_TRUE(TRUST_TOKEN_generate_key_with_deployment_id(
+            method(), priv_key, &priv_key_len,
+            TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE, pub_key, &pub_key_len,
+            TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, KeyID(i), nullptr, 0));
+      } else {
+        ASSERT_TRUE(TRUST_TOKEN_generate_key(
+            method(), priv_key, &priv_key_len,
+            TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE, pub_key, &pub_key_len,
+            TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, KeyID(i)));
+      }
       ASSERT_TRUE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key,
                                              pub_key_len));
       ASSERT_EQ(i, key_index);
@@ -875,6 +1106,13 @@ TEST_P(TrustTokenProtocolTest, IssuedWithBadKeyID) {
   issuer.reset(TRUST_TOKEN_ISSUER_new(method(), issuer_max_batchsize));
   ASSERT_TRUE(issuer);
 
+  if (method()->is_athm) {
+    ASSERT_TRUE(
+        TRUST_TOKEN_CLIENT_set_deployment_id(client.get(), nullptr, 0));
+    ASSERT_TRUE(
+        TRUST_TOKEN_ISSUER_set_deployment_id(issuer.get(), nullptr, 0));
+  }
+
   // We configure the client and the issuer with different key IDs and test
   // that the client notices.
   const uint32_t kClientKeyID = 0;
@@ -883,16 +1121,30 @@ TEST_P(TrustTokenProtocolTest, IssuedWithBadKeyID) {
   uint8_t priv_key[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
   uint8_t pub_key[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
   size_t priv_key_len, pub_key_len, key_index;
-  ASSERT_TRUE(TRUST_TOKEN_generate_key(
-      method(), priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
-      pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, kClientKeyID));
+  if (method()->is_athm) {
+    ASSERT_TRUE(TRUST_TOKEN_generate_key_with_deployment_id(
+        method(), priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+        pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, kClientKeyID,
+        nullptr, 0));
+  } else {
+    ASSERT_TRUE(TRUST_TOKEN_generate_key(
+        method(), priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+        pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, kClientKeyID));
+  }
   ASSERT_TRUE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key,
                                          pub_key_len));
   ASSERT_EQ(0UL, key_index);
 
-  ASSERT_TRUE(TRUST_TOKEN_generate_key(
-      method(), priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
-      pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, kIssuerKeyID));
+  if (method()->is_athm) {
+    ASSERT_TRUE(TRUST_TOKEN_generate_key_with_deployment_id(
+        method(), priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+        pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, kIssuerKeyID,
+        nullptr, 0));
+  } else {
+    ASSERT_TRUE(TRUST_TOKEN_generate_key(
+        method(), priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+        pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, kIssuerKeyID));
+  }
   ASSERT_TRUE(TRUST_TOKEN_ISSUER_add_key(issuer.get(), priv_key, priv_key_len));
 
 
@@ -969,7 +1221,8 @@ TEST_P(TrustTokenMetadataTest, SetAndGetMetadata) {
   bool result = TRUST_TOKEN_ISSUER_issue(
       issuer.get(), &issue_resp, &resp_len, &tokens_issued, issue_msg, msg_len,
       public_metadata(), private_metadata(), /*max_issuance=*/1);
-  if (!method()->has_private_metadata && private_metadata()) {
+  if ((!method()->has_private_metadata && private_metadata()) ||
+      static_cast<uint32_t>(public_metadata()) >= KeyID(method()->max_keys)) {
     ASSERT_FALSE(result);
     return;
   }
@@ -991,10 +1244,14 @@ TEST_P(TrustTokenMetadataTest, SetAndGetMetadata) {
   ASSERT_TRUE(tokens2);
   EXPECT_EQ(key_index, key_index2);
   EXPECT_EQ(1u, sk_TRUST_TOKEN_num(tokens2.get()));
-  EXPECT_EQ(Bytes(sk_TRUST_TOKEN_value(tokens.get(), 0)->data,
-                  sk_TRUST_TOKEN_value(tokens.get(), 0)->len),
-            Bytes(sk_TRUST_TOKEN_value(tokens2.get(), 0)->data,
-                  sk_TRUST_TOKEN_value(tokens2.get(), 0)->len));
+  // ATHM's unblind step uses random re-randomization (c), so duplicated
+  // clients will produce different token bytes. Skip byte comparison for ATHM.
+  if (method() != TRUST_TOKEN_athm_v1()) {
+    EXPECT_EQ(Bytes(sk_TRUST_TOKEN_value(tokens.get(), 0)->data,
+                    sk_TRUST_TOKEN_value(tokens.get(), 0)->len),
+              Bytes(sk_TRUST_TOKEN_value(tokens2.get(), 0)->data,
+                    sk_TRUST_TOKEN_value(tokens2.get(), 0)->len));
+  }
 
   for (TRUST_TOKEN *token : tokens.get()) {
     const uint8_t kClientData[] = "\x70TEST CLIENT DATA";
@@ -1030,7 +1287,8 @@ TEST_P(TrustTokenMetadataTest, SetAndGetMetadata) {
 }
 
 TEST_P(TrustTokenMetadataTest, TooManyRequests) {
-  if (!method()->has_private_metadata && private_metadata()) {
+  if ((!method()->has_private_metadata && private_metadata()) ||
+      static_cast<uint32_t>(public_metadata()) >= KeyID(method()->max_keys)) {
     return;
   }
 
@@ -1063,7 +1321,14 @@ TEST_P(TrustTokenMetadataTest, TooManyRequests) {
 
 
 TEST_P(TrustTokenMetadataTest, TruncatedProof) {
-  if (!method()->has_private_metadata && private_metadata()) {
+  if ((!method()->has_private_metadata && private_metadata()) ||
+      static_cast<uint32_t>(public_metadata()) >= KeyID(method()->max_keys)) {
+    return;
+  }
+
+  // ATHM uses per-token inline proofs rather than a batched DLEQ proof, so
+  // this test's response manipulation does not apply.
+  if (method() == TRUST_TOKEN_athm_v1()) {
     return;
   }
 
@@ -1132,6 +1397,12 @@ TEST_P(TrustTokenMetadataTest, TruncatedProof) {
 
 TEST_P(TrustTokenMetadataTest, ExcessDataProof) {
   if (!method()->has_private_metadata && private_metadata()) {
+    return;
+  }
+
+  // ATHM uses per-token inline proofs rather than a batched DLEQ proof, so
+  // this test's response manipulation does not apply.
+  if (method() == TRUST_TOKEN_athm_v1()) {
     return;
   }
 
@@ -1260,6 +1531,32 @@ TEST_P(TrustTokenBadKeyTest, BadKey) {
       TRUST_TOKEN_CLIENT_finish_issuance(client.get(), &key_index, issue_resp,
                                          resp_len));
 
+  // ATHM's issuance proof (C_rho equation) detects corruption of any scalar
+  // used in the bucket formula. With metadata bucket 0, y and r_y are scaled
+  // by 0 and don't contribute, so their corruption is not detected.
+  // ATHM also does not use |ys| (scalar index 5).
+  if (method() == TRUST_TOKEN_athm_v1()) {
+    int ck = corrupted_key();
+    bool expect_success;
+    if (ck == 5) {
+      // ys is unused in ATHM.
+      expect_success = true;
+    } else if ((ck == 1 || ck == 3) && !private_metadata()) {
+      // y (key 1) and r_y (key 3) are scaled by metadata. With bucket 0,
+      // they don't contribute to V or rho.
+      expect_success = true;
+    } else {
+      // All other corruptions are detected by the issuance proof.
+      expect_success = false;
+    }
+    if (expect_success) {
+      ASSERT_TRUE(tokens);
+    } else {
+      ASSERT_FALSE(tokens);
+    }
+    return;
+  }
+
   // If the unused private key is corrupted, then the DLEQ proof should succeed.
   if ((corrupted_key() / 2 == 0 && private_metadata() == true) ||
       (corrupted_key() / 2 == 1 && private_metadata() == false)) {
@@ -1274,6 +1571,483 @@ INSTANTIATE_TEST_SUITE_P(TrustTokenAllBadKeyTest, TrustTokenBadKeyTest,
                                           testing::Bool(),
                                           testing::Bool(),
                                           testing::Values(0, 1, 2, 3, 4, 5)));
+
+// ATHM deployment_id and multi-key tests.
+
+TEST(TrustTokenTest, ATHMDeploymentIdIssuance) {
+  // Full end-to-end issuance/redemption with a custom deployment_id.
+  const uint8_t kDeploymentId[] = "my-deployment";
+  const TRUST_TOKEN_METHOD *method = TRUST_TOKEN_athm_v1();
+
+  // Generate key with deployment_id.
+  uint8_t priv_key[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  size_t priv_key_len, pub_key_len;
+  ASSERT_TRUE(TRUST_TOKEN_generate_key_with_deployment_id(
+      method, priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+      pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, 0,
+      kDeploymentId, sizeof(kDeploymentId) - 1));
+
+  // Set up client with deployment_id.
+  bssl::UniquePtr<TRUST_TOKEN_CLIENT> client(
+      TRUST_TOKEN_CLIENT_new(method, 10));
+  ASSERT_TRUE(client);
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_set_deployment_id(
+      client.get(), kDeploymentId, sizeof(kDeploymentId) - 1));
+  size_t key_index;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key,
+                                         pub_key_len));
+
+  // Set up issuer with deployment_id.
+  bssl::UniquePtr<TRUST_TOKEN_ISSUER> issuer(
+      TRUST_TOKEN_ISSUER_new(method, 10));
+  ASSERT_TRUE(issuer);
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_set_deployment_id(
+      issuer.get(), kDeploymentId, sizeof(kDeploymentId) - 1));
+  ASSERT_TRUE(
+      TRUST_TOKEN_ISSUER_add_key(issuer.get(), priv_key, priv_key_len));
+
+  uint8_t metadata_key[32];
+  RAND_bytes(metadata_key, sizeof(metadata_key));
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_set_metadata_key(issuer.get(), metadata_key,
+                                                   sizeof(metadata_key)));
+
+  // Issuance.
+  uint8_t *issue_msg = nullptr, *issue_resp = nullptr;
+  size_t msg_len, resp_len;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_issuance(client.get(), &issue_msg,
+                                                &msg_len, 1));
+  bssl::UniquePtr<uint8_t> free_issue_msg(issue_msg);
+  size_t tokens_issued;
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_issue(
+      issuer.get(), &issue_resp, &resp_len, &tokens_issued, issue_msg, msg_len,
+      /*public_metadata=*/0, /*private_metadata=*/1, /*max_issuance=*/10));
+  bssl::UniquePtr<uint8_t> free_issue_resp(issue_resp);
+  bssl::UniquePtr<STACK_OF(TRUST_TOKEN)> tokens(
+      TRUST_TOKEN_CLIENT_finish_issuance(client.get(), &key_index, issue_resp,
+                                         resp_len));
+  ASSERT_TRUE(tokens);
+  ASSERT_EQ(1u, sk_TRUST_TOKEN_num(tokens.get()));
+
+  // Redemption.
+  TRUST_TOKEN *token = sk_TRUST_TOKEN_value(tokens.get(), 0);
+  uint8_t *redeem_msg = nullptr;
+  size_t redeem_msg_len;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_redemption(
+      client.get(), &redeem_msg, &redeem_msg_len, token, nullptr, 0, 0));
+  bssl::UniquePtr<uint8_t> free_redeem_msg(redeem_msg);
+  uint32_t public_value;
+  uint8_t private_value;
+  TRUST_TOKEN *rtoken;
+  uint8_t *client_data;
+  size_t client_data_len;
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_redeem(issuer.get(), &public_value,
+                                         &private_value, &rtoken, &client_data,
+                                         &client_data_len, redeem_msg,
+                                         redeem_msg_len));
+  bssl::UniquePtr<TRUST_TOKEN> free_rtoken(rtoken);
+  bssl::UniquePtr<uint8_t> free_client_data(client_data);
+  EXPECT_EQ(0u, public_value);
+  // For ATHM, private_value is the raw hidden metadata bucket index.
+  EXPECT_EQ(1u, private_value);
+}
+
+TEST(TrustTokenTest, ATHMDeriveKeyFromSecret) {
+  // End-to-end issuance/redemption using derive_key_from_secret with ATHM.
+  const uint8_t kDeploymentId[] = "derive-test-deployment";
+  const uint8_t kSecret[] = "test-secret-for-athm-key-derivation";
+  const TRUST_TOKEN_METHOD *method = TRUST_TOKEN_athm_v1();
+
+  // Derive key with deployment_id.
+  uint8_t priv_key[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  size_t priv_key_len, pub_key_len;
+  ASSERT_TRUE(TRUST_TOKEN_derive_key_from_secret_with_deployment_id(
+      method, priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+      pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, 0, kSecret,
+      sizeof(kSecret) - 1, kDeploymentId, sizeof(kDeploymentId) - 1));
+
+  // Derive the same key again and verify private key determinism.
+  // The public key includes a randomized Schnorr proof, so only the private
+  // key is deterministic across calls.
+  uint8_t priv_key2[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key2[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  size_t priv_key2_len, pub_key2_len;
+  ASSERT_TRUE(TRUST_TOKEN_derive_key_from_secret_with_deployment_id(
+      method, priv_key2, &priv_key2_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+      pub_key2, &pub_key2_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, 0, kSecret,
+      sizeof(kSecret) - 1, kDeploymentId, sizeof(kDeploymentId) - 1));
+  EXPECT_EQ(Bytes(priv_key, priv_key_len), Bytes(priv_key2, priv_key2_len));
+
+  // Set up client.
+  bssl::UniquePtr<TRUST_TOKEN_CLIENT> client(
+      TRUST_TOKEN_CLIENT_new(method, 10));
+  ASSERT_TRUE(client);
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_set_deployment_id(
+      client.get(), kDeploymentId, sizeof(kDeploymentId) - 1));
+  size_t key_index;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key,
+                                         pub_key_len));
+
+  // Set up issuer.
+  bssl::UniquePtr<TRUST_TOKEN_ISSUER> issuer(
+      TRUST_TOKEN_ISSUER_new(method, 10));
+  ASSERT_TRUE(issuer);
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_set_deployment_id(
+      issuer.get(), kDeploymentId, sizeof(kDeploymentId) - 1));
+  ASSERT_TRUE(
+      TRUST_TOKEN_ISSUER_add_key(issuer.get(), priv_key, priv_key_len));
+
+  uint8_t metadata_key[32];
+  RAND_bytes(metadata_key, sizeof(metadata_key));
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_set_metadata_key(issuer.get(), metadata_key,
+                                                   sizeof(metadata_key)));
+
+  // Test all 4 metadata buckets with the derived key.
+  for (uint8_t bucket = 0; bucket < 4; bucket++) {
+    uint8_t *issue_msg = nullptr, *issue_resp = nullptr;
+    size_t msg_len, resp_len;
+    ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_issuance(client.get(), &issue_msg,
+                                                  &msg_len, 1));
+    bssl::UniquePtr<uint8_t> free_issue_msg(issue_msg);
+    size_t tokens_issued;
+    ASSERT_TRUE(TRUST_TOKEN_ISSUER_issue(
+        issuer.get(), &issue_resp, &resp_len, &tokens_issued, issue_msg,
+        msg_len, /*public_metadata=*/0, /*private_metadata=*/bucket,
+        /*max_issuance=*/10));
+    bssl::UniquePtr<uint8_t> free_issue_resp(issue_resp);
+    bssl::UniquePtr<STACK_OF(TRUST_TOKEN)> tokens(
+        TRUST_TOKEN_CLIENT_finish_issuance(client.get(), &key_index, issue_resp,
+                                           resp_len));
+    ASSERT_TRUE(tokens);
+    ASSERT_EQ(1u, sk_TRUST_TOKEN_num(tokens.get()));
+
+    // Redeem and verify the metadata bucket.
+    TRUST_TOKEN *token = sk_TRUST_TOKEN_value(tokens.get(), 0);
+    uint8_t *redeem_msg = nullptr;
+    size_t redeem_msg_len;
+    ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_redemption(
+        client.get(), &redeem_msg, &redeem_msg_len, token, nullptr, 0, 0));
+    bssl::UniquePtr<uint8_t> free_redeem_msg(redeem_msg);
+    uint32_t public_value;
+    uint8_t private_value;
+    TRUST_TOKEN *rtoken;
+    uint8_t *client_data;
+    size_t client_data_len;
+    ASSERT_TRUE(TRUST_TOKEN_ISSUER_redeem(issuer.get(), &public_value,
+                                           &private_value, &rtoken,
+                                           &client_data, &client_data_len,
+                                           redeem_msg, redeem_msg_len));
+    bssl::UniquePtr<TRUST_TOKEN> free_rtoken(rtoken);
+    bssl::UniquePtr<uint8_t> free_client_data(client_data);
+    EXPECT_EQ(bucket, private_value);
+  }
+}
+
+TEST(TrustTokenTest, ATHMDeriveKeyRejectsWithoutDeploymentId) {
+  // TRUST_TOKEN_derive_key_from_secret must fail for ATHM methods.
+  const TRUST_TOKEN_METHOD *method = TRUST_TOKEN_athm_v1();
+  uint8_t priv_key[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  size_t priv_key_len, pub_key_len;
+  ASSERT_FALSE(TRUST_TOKEN_derive_key_from_secret(
+      method, priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+      pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, 0,
+      (const uint8_t *)"secret", 6));
+}
+
+TEST(TrustTokenTest, ATHMDeploymentIdMismatch) {
+  // Client and issuer with different deployment_ids; unblind should fail.
+  const uint8_t kDeploymentIdA[] = "deployment-A";
+  const uint8_t kDeploymentIdB[] = "deployment-B";
+  const TRUST_TOKEN_METHOD *method = TRUST_TOKEN_athm_v1();
+
+  // Generate key with deployment A.
+  uint8_t priv_key[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  size_t priv_key_len, pub_key_len;
+  ASSERT_TRUE(TRUST_TOKEN_generate_key_with_deployment_id(
+      method, priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+      pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, 0,
+      kDeploymentIdA, sizeof(kDeploymentIdA) - 1));
+
+  // Generate a separate key with deployment B for the client's public key.
+  uint8_t priv_key_b[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key_b[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  size_t priv_key_b_len, pub_key_b_len;
+  ASSERT_TRUE(TRUST_TOKEN_generate_key_with_deployment_id(
+      method, priv_key_b, &priv_key_b_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+      pub_key_b, &pub_key_b_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, 0,
+      kDeploymentIdB, sizeof(kDeploymentIdB) - 1));
+
+  // Client uses deployment B key and context.
+  bssl::UniquePtr<TRUST_TOKEN_CLIENT> client(
+      TRUST_TOKEN_CLIENT_new(method, 10));
+  ASSERT_TRUE(client);
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_set_deployment_id(
+      client.get(), kDeploymentIdB, sizeof(kDeploymentIdB) - 1));
+  size_t key_index;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key_b,
+                                         pub_key_b_len));
+
+  // Issuer uses deployment A key and context.
+  bssl::UniquePtr<TRUST_TOKEN_ISSUER> issuer(
+      TRUST_TOKEN_ISSUER_new(method, 10));
+  ASSERT_TRUE(issuer);
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_set_deployment_id(
+      issuer.get(), kDeploymentIdA, sizeof(kDeploymentIdA) - 1));
+  ASSERT_TRUE(
+      TRUST_TOKEN_ISSUER_add_key(issuer.get(), priv_key, priv_key_len));
+
+  // Begin issuance (client uses deployment B's Z).
+  uint8_t *issue_msg = nullptr, *issue_resp = nullptr;
+  size_t msg_len, resp_len;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_issuance(client.get(), &issue_msg,
+                                                &msg_len, 1));
+  bssl::UniquePtr<uint8_t> free_issue_msg(issue_msg);
+
+  // Issuer signs with deployment A's key.
+  size_t tokens_issued;
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_issue(
+      issuer.get(), &issue_resp, &resp_len, &tokens_issued, issue_msg, msg_len,
+      /*public_metadata=*/0, /*private_metadata=*/0, /*max_issuance=*/10));
+  bssl::UniquePtr<uint8_t> free_issue_resp(issue_resp);
+
+  // Client tries to unblind with deployment B context - proof verification
+  // should fail because the issuer used a different H.
+  bssl::UniquePtr<STACK_OF(TRUST_TOKEN)> tokens(
+      TRUST_TOKEN_CLIENT_finish_issuance(client.get(), &key_index, issue_resp,
+                                         resp_len));
+  ASSERT_FALSE(tokens);
+}
+
+TEST(TrustTokenTest, ATHMMultiKeySharedZ) {
+  // Two keys with the same z, different (x,y,r_x,r_y). Issuance works with
+  // either key.
+  const TRUST_TOKEN_METHOD *method = TRUST_TOKEN_athm_v1_multikey();
+
+  // Simplest test: generate one key, serialize it twice with different IDs.
+  // That gives two keys with the same z (identical keys). This at least tests
+  // that multi-key add_key works.
+  uint8_t priv_key[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  size_t priv_key_len, pub_key_len;
+  ASSERT_TRUE(TRUST_TOKEN_generate_key_with_deployment_id(
+      method, priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+      pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, 0,
+      nullptr, 0));
+
+  // Create a copy with a different key ID.
+  uint8_t priv_key2[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key2[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  OPENSSL_memcpy(priv_key2, priv_key, priv_key_len);
+  OPENSSL_memcpy(pub_key2, pub_key, pub_key_len);
+  // Overwrite the 4-byte key ID at the start.
+  priv_key2[0] = 0;
+  priv_key2[1] = 0;
+  priv_key2[2] = 0;
+  priv_key2[3] = 1;
+  pub_key2[0] = 0;
+  pub_key2[1] = 0;
+  pub_key2[2] = 0;
+  pub_key2[3] = 1;
+
+  // Set up client with both keys.
+  bssl::UniquePtr<TRUST_TOKEN_CLIENT> client(
+      TRUST_TOKEN_CLIENT_new(method, 10));
+  ASSERT_TRUE(client);
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_set_deployment_id(client.get(), nullptr, 0));
+  size_t key_index;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key,
+                                         pub_key_len));
+  ASSERT_EQ(0u, key_index);
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key2,
+                                         pub_key_len));
+  ASSERT_EQ(1u, key_index);
+
+  // Set up issuer with both keys.
+  bssl::UniquePtr<TRUST_TOKEN_ISSUER> issuer(
+      TRUST_TOKEN_ISSUER_new(method, 10));
+  ASSERT_TRUE(issuer);
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_set_deployment_id(issuer.get(), nullptr, 0));
+  ASSERT_TRUE(
+      TRUST_TOKEN_ISSUER_add_key(issuer.get(), priv_key, priv_key_len));
+  ASSERT_TRUE(
+      TRUST_TOKEN_ISSUER_add_key(issuer.get(), priv_key2, priv_key_len));
+
+  uint8_t metadata_key[32];
+  RAND_bytes(metadata_key, sizeof(metadata_key));
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_set_metadata_key(issuer.get(), metadata_key,
+                                                   sizeof(metadata_key)));
+
+  // Issue with key 0 (public_metadata=0).
+  uint8_t *issue_msg = nullptr, *issue_resp = nullptr;
+  size_t msg_len, resp_len;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_issuance(client.get(), &issue_msg,
+                                                &msg_len, 1));
+  bssl::UniquePtr<uint8_t> free_issue_msg(issue_msg);
+  size_t tokens_issued;
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_issue(
+      issuer.get(), &issue_resp, &resp_len, &tokens_issued, issue_msg, msg_len,
+      /*public_metadata=*/0, /*private_metadata=*/0, /*max_issuance=*/10));
+  bssl::UniquePtr<uint8_t> free_issue_resp(issue_resp);
+  bssl::UniquePtr<STACK_OF(TRUST_TOKEN)> tokens(
+      TRUST_TOKEN_CLIENT_finish_issuance(client.get(), &key_index, issue_resp,
+                                         resp_len));
+  ASSERT_TRUE(tokens);
+  ASSERT_EQ(1u, sk_TRUST_TOKEN_num(tokens.get()));
+  EXPECT_EQ(0u, key_index);
+
+  // Issue with key 1 (public_metadata=1).
+  uint8_t *issue_msg2 = nullptr, *issue_resp2 = nullptr;
+  size_t msg_len2, resp_len2;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_issuance(client.get(), &issue_msg2,
+                                                &msg_len2, 1));
+  bssl::UniquePtr<uint8_t> free_issue_msg2(issue_msg2);
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_issue(
+      issuer.get(), &issue_resp2, &resp_len2, &tokens_issued, issue_msg2,
+      msg_len2, /*public_metadata=*/1, /*private_metadata=*/0,
+      /*max_issuance=*/10));
+  bssl::UniquePtr<uint8_t> free_issue_resp2(issue_resp2);
+  bssl::UniquePtr<STACK_OF(TRUST_TOKEN)> tokens2(
+      TRUST_TOKEN_CLIENT_finish_issuance(client.get(), &key_index, issue_resp2,
+                                         resp_len2));
+  ASSERT_TRUE(tokens2);
+  ASSERT_EQ(1u, sk_TRUST_TOKEN_num(tokens2.get()));
+  EXPECT_EQ(1u, key_index);
+}
+
+TEST(TrustTokenTest, ATHMMultiKeyZMismatch) {
+  // Two independently generated keys (different z). Second add_key should fail.
+  const TRUST_TOKEN_METHOD *method = TRUST_TOKEN_athm_v1_multikey();
+
+  uint8_t priv_key1[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key1[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  size_t priv_key1_len, pub_key1_len;
+  ASSERT_TRUE(TRUST_TOKEN_generate_key_with_deployment_id(
+      method, priv_key1, &priv_key1_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+      pub_key1, &pub_key1_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, 0,
+      nullptr, 0));
+
+  uint8_t priv_key2[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key2[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  size_t priv_key2_len, pub_key2_len;
+  ASSERT_TRUE(TRUST_TOKEN_generate_key_with_deployment_id(
+      method, priv_key2, &priv_key2_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+      pub_key2, &pub_key2_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, 1,
+      nullptr, 0));
+
+  // Issuer: first key succeeds, second fails with Z_MISMATCH.
+  bssl::UniquePtr<TRUST_TOKEN_ISSUER> issuer(
+      TRUST_TOKEN_ISSUER_new(method, 10));
+  ASSERT_TRUE(issuer);
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_set_deployment_id(issuer.get(), nullptr, 0));
+  ASSERT_TRUE(
+      TRUST_TOKEN_ISSUER_add_key(issuer.get(), priv_key1, priv_key1_len));
+  ASSERT_FALSE(
+      TRUST_TOKEN_ISSUER_add_key(issuer.get(), priv_key2, priv_key2_len));
+
+  // Client: first key succeeds, second fails with Z_MISMATCH.
+  bssl::UniquePtr<TRUST_TOKEN_CLIENT> client(
+      TRUST_TOKEN_CLIENT_new(method, 10));
+  ASSERT_TRUE(client);
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_set_deployment_id(client.get(), nullptr, 0));
+  size_t key_index;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key1,
+                                         pub_key1_len));
+  ASSERT_FALSE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key2,
+                                          pub_key2_len));
+}
+
+TEST(TrustTokenTest, ATHMMultiKeyRotation) {
+  // Issue tokens with key 0, add key 1 (shared z), verify redemption works
+  // for tokens from key 0.
+  const TRUST_TOKEN_METHOD *method = TRUST_TOKEN_athm_v1_multikey();
+
+  uint8_t priv_key[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  size_t priv_key_len, pub_key_len;
+  ASSERT_TRUE(TRUST_TOKEN_generate_key_with_deployment_id(
+      method, priv_key, &priv_key_len, TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE,
+      pub_key, &pub_key_len, TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE, 0,
+      nullptr, 0));
+
+  // Create key 1 with same z (same key bytes, different ID).
+  uint8_t priv_key2[TRUST_TOKEN_MAX_PRIVATE_KEY_SIZE];
+  uint8_t pub_key2[TRUST_TOKEN_MAX_PUBLIC_KEY_SIZE];
+  OPENSSL_memcpy(priv_key2, priv_key, priv_key_len);
+  OPENSSL_memcpy(pub_key2, pub_key, pub_key_len);
+  priv_key2[0] = 0;
+  priv_key2[1] = 0;
+  priv_key2[2] = 0;
+  priv_key2[3] = 1;
+  pub_key2[0] = 0;
+  pub_key2[1] = 0;
+  pub_key2[2] = 0;
+  pub_key2[3] = 1;
+
+  // Phase 1: Issue with only key 0.
+  bssl::UniquePtr<TRUST_TOKEN_CLIENT> client(
+      TRUST_TOKEN_CLIENT_new(method, 10));
+  ASSERT_TRUE(client);
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_set_deployment_id(client.get(), nullptr, 0));
+  size_t key_index;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key,
+                                         pub_key_len));
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_add_key(client.get(), &key_index, pub_key2,
+                                         pub_key_len));
+
+  bssl::UniquePtr<TRUST_TOKEN_ISSUER> issuer(
+      TRUST_TOKEN_ISSUER_new(method, 10));
+  ASSERT_TRUE(issuer);
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_set_deployment_id(issuer.get(), nullptr, 0));
+  ASSERT_TRUE(
+      TRUST_TOKEN_ISSUER_add_key(issuer.get(), priv_key, priv_key_len));
+  ASSERT_TRUE(
+      TRUST_TOKEN_ISSUER_add_key(issuer.get(), priv_key2, priv_key_len));
+
+  uint8_t metadata_key[32];
+  RAND_bytes(metadata_key, sizeof(metadata_key));
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_set_metadata_key(issuer.get(), metadata_key,
+                                                   sizeof(metadata_key)));
+
+  // Issue token with key 0.
+  uint8_t *issue_msg = nullptr, *issue_resp = nullptr;
+  size_t msg_len, resp_len;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_issuance(client.get(), &issue_msg,
+                                                &msg_len, 1));
+  bssl::UniquePtr<uint8_t> free_issue_msg(issue_msg);
+  size_t tokens_issued;
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_issue(
+      issuer.get(), &issue_resp, &resp_len, &tokens_issued, issue_msg, msg_len,
+      /*public_metadata=*/0, /*private_metadata=*/0, /*max_issuance=*/10));
+  bssl::UniquePtr<uint8_t> free_issue_resp(issue_resp);
+  bssl::UniquePtr<STACK_OF(TRUST_TOKEN)> tokens(
+      TRUST_TOKEN_CLIENT_finish_issuance(client.get(), &key_index, issue_resp,
+                                         resp_len));
+  ASSERT_TRUE(tokens);
+  ASSERT_EQ(1u, sk_TRUST_TOKEN_num(tokens.get()));
+
+  // Redeem token issued by key 0.
+  TRUST_TOKEN *token = sk_TRUST_TOKEN_value(tokens.get(), 0);
+  uint8_t *redeem_msg = nullptr;
+  size_t redeem_msg_len;
+  ASSERT_TRUE(TRUST_TOKEN_CLIENT_begin_redemption(
+      client.get(), &redeem_msg, &redeem_msg_len, token, nullptr, 0, 0));
+  bssl::UniquePtr<uint8_t> free_redeem_msg(redeem_msg);
+  uint32_t public_value;
+  uint8_t private_value;
+  TRUST_TOKEN *rtoken;
+  uint8_t *client_data;
+  size_t client_data_len;
+  ASSERT_TRUE(TRUST_TOKEN_ISSUER_redeem(issuer.get(), &public_value,
+                                         &private_value, &rtoken, &client_data,
+                                         &client_data_len, redeem_msg,
+                                         redeem_msg_len));
+  bssl::UniquePtr<TRUST_TOKEN> free_rtoken(rtoken);
+  bssl::UniquePtr<uint8_t> free_client_data(client_data);
+  EXPECT_EQ(0u, public_value);
+}
 
 }  // namespace
 BSSL_NAMESPACE_END

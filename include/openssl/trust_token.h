@@ -56,6 +56,17 @@ OPENSSL_EXPORT const TRUST_TOKEN_METHOD *TRUST_TOKEN_pst_v1_voprf(void);
 // PMBTokens and P-384 with up to 3 keys, without RR verification.
 OPENSSL_EXPORT const TRUST_TOKEN_METHOD *TRUST_TOKEN_pst_v1_pmb(void);
 
+// TRUST_TOKEN_athm_v1 is a Trust Tokens protocol using ATHM (Anonymous Tokens
+// with Hidden Metadata) and P-256 with 4 hidden metadata buckets and up to 1
+// key, without RR verification.
+OPENSSL_EXPORT const TRUST_TOKEN_METHOD *TRUST_TOKEN_athm_v1(void);
+
+// TRUST_TOKEN_athm_v1_multikey is a Trust Tokens protocol using ATHM and P-256
+// with 4 hidden metadata buckets and up to 2 keys, without RR verification.
+// All keys must share the same z scalar (i.e. the same Z = z*H public key
+// component).
+OPENSSL_EXPORT const TRUST_TOKEN_METHOD *TRUST_TOKEN_athm_v1_multikey(void);
+
 // trust_token_st represents a single-use token for the Trust Token protocol.
 // For the client, this is the token and its corresponding signature. For the
 // issuer, this is the token itself.
@@ -110,6 +121,29 @@ OPENSSL_EXPORT int TRUST_TOKEN_derive_key_from_secret(
     size_t *out_pub_key_len, size_t max_pub_key_len, uint32_t id,
     const uint8_t *secret, size_t secret_len);
 
+// TRUST_TOKEN_generate_key_with_deployment_id creates a new Trust Token keypair
+// labeled with |id| using the specified |deployment_id|. For ATHM methods, the
+// deployment_id determines the generator H used in key generation. For other
+// methods, the deployment_id is ignored. Otherwise behaves like
+// |TRUST_TOKEN_generate_key|.
+OPENSSL_EXPORT int TRUST_TOKEN_generate_key_with_deployment_id(
+    const TRUST_TOKEN_METHOD *method, uint8_t *out_priv_key,
+    size_t *out_priv_key_len, size_t max_priv_key_len, uint8_t *out_pub_key,
+    size_t *out_pub_key_len, size_t max_pub_key_len, uint32_t id,
+    const uint8_t *deployment_id, size_t deployment_id_len);
+
+// TRUST_TOKEN_derive_key_from_secret_with_deployment_id deterministically
+// derives a new Trust Token keypair from |secret| using the specified
+// |deployment_id|. For ATHM methods, the deployment_id determines the generator
+// H. For other methods, the deployment_id is ignored. Otherwise behaves like
+// |TRUST_TOKEN_derive_key_from_secret|.
+OPENSSL_EXPORT int TRUST_TOKEN_derive_key_from_secret_with_deployment_id(
+    const TRUST_TOKEN_METHOD *method, uint8_t *out_priv_key,
+    size_t *out_priv_key_len, size_t max_priv_key_len, uint8_t *out_pub_key,
+    size_t *out_pub_key_len, size_t max_pub_key_len, uint32_t id,
+    const uint8_t *secret, size_t secret_len, const uint8_t *deployment_id,
+    size_t deployment_id_len);
+
 
 // Trust Token client implementation.
 //
@@ -147,6 +181,14 @@ OPENSSL_EXPORT int TRUST_TOKEN_CLIENT_add_key(TRUST_TOKEN_CLIENT *ctx,
                                               size_t *out_key_index,
                                               const uint8_t *key,
                                               size_t key_len);
+
+// TRUST_TOKEN_CLIENT_set_deployment_id sets the deployment identifier used for
+// ATHM methods. This determines the generator H used in the protocol. Must be
+// called before |TRUST_TOKEN_CLIENT_add_key| for ATHM methods. For non-ATHM
+// methods, this function is a no-op. It returns one on success and zero on
+// error.
+OPENSSL_EXPORT int TRUST_TOKEN_CLIENT_set_deployment_id(
+    TRUST_TOKEN_CLIENT *ctx, const uint8_t *deployment_id, size_t len);
 
 // TRUST_TOKEN_CLIENT_set_srr_key sets the public key used to verify the SRR. It
 // returns one on success and zero on error.
@@ -238,6 +280,14 @@ OPENSSL_EXPORT void TRUST_TOKEN_ISSUER_free(TRUST_TOKEN_ISSUER *ctx);
 OPENSSL_EXPORT int TRUST_TOKEN_ISSUER_add_key(TRUST_TOKEN_ISSUER *ctx,
                                               const uint8_t *key,
                                               size_t key_len);
+
+// TRUST_TOKEN_ISSUER_set_deployment_id sets the deployment identifier used for
+// ATHM methods. This determines the generator H used in the protocol. Must be
+// called before |TRUST_TOKEN_ISSUER_add_key| for ATHM methods. For non-ATHM
+// methods, this function is a no-op. It returns one on success and zero on
+// error.
+OPENSSL_EXPORT int TRUST_TOKEN_ISSUER_set_deployment_id(
+    TRUST_TOKEN_ISSUER *ctx, const uint8_t *deployment_id, size_t len);
 
 // TRUST_TOKEN_ISSUER_set_srr_key sets the private key used to sign the SRR. It
 // returns one on success and zero on error.
@@ -352,5 +402,7 @@ BSSL_NAMESPACE_END
 #define TRUST_TOKEN_R_NO_SRR_KEY_CONFIGURED 112
 #define TRUST_TOKEN_R_INVALID_METADATA_KEY 113
 #define TRUST_TOKEN_R_INVALID_PROOF 114
+#define TRUST_TOKEN_R_DEPLOYMENT_ID_REQUIRED 115
+#define TRUST_TOKEN_R_Z_MISMATCH 116
 
 #endif  // OPENSSL_HEADER_TRUST_TOKEN_H

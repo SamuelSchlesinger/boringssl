@@ -448,6 +448,7 @@ boringssl_crypto_sources := \
   crypto/thread_none.cc \
   crypto/thread_pthread.cc \
   crypto/thread_win.cc \
+  crypto/trust_token/athm.cc \
   crypto/trust_token/pmbtoken.cc \
   crypto/trust_token/trust_token.cc \
   crypto/trust_token/voprf.cc \

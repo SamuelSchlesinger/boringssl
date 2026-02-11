@@ -33,6 +33,14 @@
 
 using namespace bssl;
 
+static void athm_context_data_free(ATHM_CONTEXT_DATA *data) {
+  if (data == nullptr) {
+    return;
+  }
+  OPENSSL_free(data->deployment_id);
+  Delete(data);
+}
+
 const TRUST_TOKEN_METHOD *TRUST_TOKEN_experiment_v1() {
   static const TRUST_TOKEN_METHOD kMethod = {
       pmbtoken_exp1_generate_key,
@@ -128,6 +136,44 @@ const TRUST_TOKEN_METHOD *TRUST_TOKEN_pst_v1_pmb() {
   return &kMethod;
 }
 
+const TRUST_TOKEN_METHOD *TRUST_TOKEN_athm_v1() {
+  static const TRUST_TOKEN_METHOD kMethod = {
+      athm_v1_generate_key,
+      athm_v1_derive_key_from_secret,
+      athm_v1_client_key_from_bytes,
+      athm_v1_issuer_key_from_bytes,
+      athm_v1_blind,
+      athm_v1_sign,
+      athm_v1_unblind,
+      athm_v1_read,
+      1, /* has_private_metadata */
+      4, /* max_private_metadata (nBuckets) */
+      1, /* max_keys */
+      0, /* has_srr */
+      1, /* is_athm */
+  };
+  return &kMethod;
+}
+
+const TRUST_TOKEN_METHOD *TRUST_TOKEN_athm_v1_multikey() {
+  static const TRUST_TOKEN_METHOD kMethod = {
+      athm_v1_generate_key,
+      athm_v1_derive_key_from_secret,
+      athm_v1_client_key_from_bytes,
+      athm_v1_issuer_key_from_bytes,
+      athm_v1_blind,
+      athm_v1_sign,
+      athm_v1_unblind,
+      athm_v1_read,
+      1, /* has_private_metadata */
+      4, /* max_private_metadata (nBuckets) */
+      2, /* max_keys */
+      0, /* has_srr */
+      1, /* is_athm */
+  };
+  return &kMethod;
+}
+
 
 void bssl::TRUST_TOKEN_PRETOKEN_free(TRUST_TOKEN_PRETOKEN *pretoken) {
   Delete(pretoken);
@@ -160,6 +206,11 @@ int TRUST_TOKEN_generate_key(const TRUST_TOKEN_METHOD *method,
                              size_t max_priv_key_len, uint8_t *out_pub_key,
                              size_t *out_pub_key_len, size_t max_pub_key_len,
                              uint32_t id) {
+  if (method->is_athm) {
+    OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_DEPLOYMENT_ID_REQUIRED);
+    return 0;
+  }
+
   // Prepend the key ID in front of the PMBTokens format.
   CBB priv_cbb, pub_cbb;
   CBB_init_fixed(&priv_cbb, out_priv_key, max_priv_key_len);
@@ -188,6 +239,11 @@ int TRUST_TOKEN_derive_key_from_secret(
     size_t *out_priv_key_len, size_t max_priv_key_len, uint8_t *out_pub_key,
     size_t *out_pub_key_len, size_t max_pub_key_len, uint32_t id,
     const uint8_t *secret, size_t secret_len) {
+  if (method->is_athm) {
+    OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_DEPLOYMENT_ID_REQUIRED);
+    return 0;
+  }
+
   // Prepend the key ID in front of the PMBTokens format.
   CBB priv_cbb, pub_cbb;
   CBB_init_fixed(&priv_cbb, out_priv_key, max_priv_key_len);
@@ -235,6 +291,8 @@ void TRUST_TOKEN_CLIENT_free(TRUST_TOKEN_CLIENT *ctx) {
   }
   EVP_PKEY_free(ctx->srr_key);
   sk_TRUST_TOKEN_PRETOKEN_pop_free(ctx->pretokens, TRUST_TOKEN_PRETOKEN_free);
+  OPENSSL_free(ctx->deployment_id);
+  athm_context_data_free(ctx->athm_data);
   Delete(ctx);
 }
 
@@ -262,11 +320,43 @@ TRUST_TOKEN_CLIENT *TRUST_TOKEN_CLIENT_dup_for_testing(
     }
   }
   ret->srr_key = bssl::UpRef(ctx->srr_key).release();
+  if (ctx->deployment_id != nullptr) {
+    ret->deployment_id = reinterpret_cast<uint8_t *>(
+        OPENSSL_memdup(ctx->deployment_id, ctx->deployment_id_len));
+    if (ret->deployment_id == nullptr) {
+      return nullptr;
+    }
+    ret->deployment_id_len = ctx->deployment_id_len;
+  }
+  if (ctx->athm_data != nullptr) {
+    ret->athm_data = New<ATHM_CONTEXT_DATA>();
+    if (ret->athm_data == nullptr) {
+      return nullptr;
+    }
+    ret->athm_data->h = ctx->athm_data->h;
+    ret->athm_data->h_initialized = ctx->athm_data->h_initialized;
+    ret->athm_data->deployment_id = nullptr;
+    ret->athm_data->deployment_id_len = 0;
+    if (ctx->athm_data->deployment_id_len > 0) {
+      ret->athm_data->deployment_id = reinterpret_cast<uint8_t *>(
+          OPENSSL_memdup(ctx->athm_data->deployment_id,
+                         ctx->athm_data->deployment_id_len));
+      if (ret->athm_data->deployment_id == nullptr) {
+        return nullptr;
+      }
+      ret->athm_data->deployment_id_len = ctx->athm_data->deployment_id_len;
+    }
+  }
   return ret.release();
 }
 
 int TRUST_TOKEN_CLIENT_add_key(TRUST_TOKEN_CLIENT *ctx, size_t *out_key_index,
                                const uint8_t *key, size_t key_len) {
+  if (ctx->method->is_athm && ctx->athm_data == nullptr) {
+    OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_DEPLOYMENT_ID_REQUIRED);
+    return 0;
+  }
+
   if (ctx->num_keys == std::size(ctx->keys) ||
       ctx->num_keys >= ctx->method->max_keys) {
     OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_TOO_MANY_KEYS);
@@ -280,10 +370,23 @@ int TRUST_TOKEN_CLIENT_add_key(TRUST_TOKEN_CLIENT *ctx, size_t *out_key_index,
   if (!CBS_get_u32(&cbs, &key_id) ||
       !ctx->method->client_key_from_bytes(&key_s->key, CBS_data(&cbs),
                                           CBS_len(&cbs),
-                                          /*method_data=*/nullptr)) {
+                                          ctx->athm_data)) {
     OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_DECODE_FAILURE);
     return 0;
   }
+
+  // For ATHM methods, all keys must share the same Z point.
+  if (ctx->method->is_athm && ctx->num_keys > 0) {
+    const EC_GROUP *group = EC_group_p256();
+    EC_JACOBIAN z_new, z_existing;
+    ec_affine_to_jacobian(group, &z_new, &key_s->key.pubs);
+    ec_affine_to_jacobian(group, &z_existing, &ctx->keys[0].key.pubs);
+    if (!ec_GFp_simple_points_equal(group, &z_new, &z_existing)) {
+      OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_Z_MISMATCH);
+      return 0;
+    }
+  }
+
   key_s->id = key_id;
   *out_key_index = ctx->num_keys;
   ctx->num_keys += 1;
@@ -310,12 +413,20 @@ static int trust_token_client_begin_issuance_impl(
   int ret = 0;
   CBB request;
   STACK_OF(TRUST_TOKEN_PRETOKEN) *pretokens = nullptr;
+
+  // ATHM requires a client key during blinding. For other methods, the key
+  // parameter is unused and must be nullptr.
+  const TRUST_TOKEN_CLIENT_KEY *blind_key = nullptr;
+  if (ctx->method->is_athm && ctx->num_keys > 0) {
+    blind_key = &ctx->keys[0].key;
+  }
+
   if (!CBB_init(&request, 0) || !CBB_add_u16(&request, count)) {
     goto err;
   }
 
   pretokens = ctx->method->blind(&request, count, include_message, msg, msg_len,
-                                 /*key=*/nullptr);
+                                 blind_key);
   if (pretokens == nullptr) {
     goto err;
   }
@@ -383,7 +494,7 @@ STACK_OF(TRUST_TOKEN) *TRUST_TOKEN_CLIENT_finish_issuance(
   }
 
   STACK_OF(TRUST_TOKEN) *tokens = ctx->method->unblind(
-      &key->key, ctx->pretokens, &in, count, key_id, /*method_data=*/nullptr);
+      &key->key, ctx->pretokens, &in, count, key_id, ctx->athm_data);
   if (tokens == nullptr) {
     return nullptr;
   }
@@ -500,11 +611,18 @@ void TRUST_TOKEN_ISSUER_free(TRUST_TOKEN_ISSUER *ctx) {
   }
   EVP_PKEY_free(ctx->srr_key);
   OPENSSL_free(ctx->metadata_key);
+  OPENSSL_free(ctx->deployment_id);
+  athm_context_data_free(ctx->athm_data);
   Delete(ctx);
 }
 
 int TRUST_TOKEN_ISSUER_add_key(TRUST_TOKEN_ISSUER *ctx, const uint8_t *key,
                                size_t key_len) {
+  if (ctx->method->is_athm && ctx->athm_data == nullptr) {
+    OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_DEPLOYMENT_ID_REQUIRED);
+    return 0;
+  }
+
   if (ctx->num_keys == std::size(ctx->keys) ||
       ctx->num_keys >= ctx->method->max_keys) {
     OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_TOO_MANY_KEYS);
@@ -517,10 +635,19 @@ int TRUST_TOKEN_ISSUER_add_key(TRUST_TOKEN_ISSUER *ctx, const uint8_t *key,
   uint32_t key_id;
   if (!CBS_get_u32(&cbs, &key_id) ||
       !ctx->method->issuer_key_from_bytes(&key_s->key, CBS_data(&cbs),
-                                          CBS_len(&cbs),
-                                          /*method_data=*/nullptr)) {
+                                          CBS_len(&cbs), ctx->athm_data)) {
     OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_DECODE_FAILURE);
     return 0;
+  }
+
+  // For ATHM methods, all keys must share the same z scalar.
+  if (ctx->method->is_athm && ctx->num_keys > 0) {
+    const EC_GROUP *group = EC_group_p256();
+    if (!ec_scalar_equal_vartime(group, &key_s->key.xs,
+                                 &ctx->keys[0].key.xs)) {
+      OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_Z_MISMATCH);
+      return 0;
+    }
   }
 
   key_s->id = key_id;
@@ -599,7 +726,7 @@ int TRUST_TOKEN_ISSUER_issue(const TRUST_TOKEN_ISSUER *ctx, uint8_t **out,
   }
 
   if (!ctx->method->sign(&key->key, &response, &in, num_requested, num_to_issue,
-                         private_metadata, /*method_data=*/nullptr)) {
+                         private_metadata, ctx->athm_data)) {
     goto err;
   }
 
@@ -726,5 +853,167 @@ int TRUST_TOKEN_decode_private_metadata(const TRUST_TOKEN_METHOD *method,
   uint8_t metadata_obfuscator =
       get_metadata_obfuscator(key, key_len, nonce, nonce_len);
   *out_value = encrypted_bit ^ metadata_obfuscator;
+  return 1;
+}
+
+static int trust_token_set_deployment_id(
+    uint8_t **out_deployment_id, size_t *out_deployment_id_len,
+    ATHM_CONTEXT_DATA **out_athm_data, const TRUST_TOKEN_METHOD *method,
+    const uint8_t *deployment_id, size_t len) {
+  OPENSSL_free(*out_deployment_id);
+  *out_deployment_id = nullptr;
+  *out_deployment_id_len = 0;
+  athm_context_data_free(*out_athm_data);
+  *out_athm_data = nullptr;
+
+  if (len > 0) {
+    *out_deployment_id =
+        reinterpret_cast<uint8_t *>(OPENSSL_memdup(deployment_id, len));
+    if (*out_deployment_id == nullptr) {
+      return 0;
+    }
+    *out_deployment_id_len = len;
+  }
+
+  if (method->is_athm) {
+    ATHM_CONTEXT_DATA *data = New<ATHM_CONTEXT_DATA>();
+    if (data == nullptr) {
+      OPENSSL_free(*out_deployment_id);
+      *out_deployment_id = nullptr;
+      *out_deployment_id_len = 0;
+      return 0;
+    }
+    data->h_initialized = 0;
+    data->deployment_id = nullptr;
+    data->deployment_id_len = 0;
+    const EC_GROUP *group = EC_group_p256();
+    if (!athm_compute_h_from_deployment_id(group, &data->h, deployment_id,
+                                           len)) {
+      athm_context_data_free(data);
+      OPENSSL_free(*out_deployment_id);
+      *out_deployment_id = nullptr;
+      *out_deployment_id_len = 0;
+      return 0;
+    }
+    data->h_initialized = 1;
+    if (len > 0) {
+      data->deployment_id =
+          reinterpret_cast<uint8_t *>(OPENSSL_memdup(deployment_id, len));
+      if (data->deployment_id == nullptr) {
+        athm_context_data_free(data);
+        OPENSSL_free(*out_deployment_id);
+        *out_deployment_id = nullptr;
+        *out_deployment_id_len = 0;
+        return 0;
+      }
+      data->deployment_id_len = len;
+    }
+    *out_athm_data = data;
+  }
+
+  return 1;
+}
+
+int TRUST_TOKEN_CLIENT_set_deployment_id(TRUST_TOKEN_CLIENT *ctx,
+                                         const uint8_t *deployment_id,
+                                         size_t len) {
+  return trust_token_set_deployment_id(&ctx->deployment_id,
+                                       &ctx->deployment_id_len,
+                                       &ctx->athm_data, ctx->method,
+                                       deployment_id, len);
+}
+
+int TRUST_TOKEN_ISSUER_set_deployment_id(TRUST_TOKEN_ISSUER *ctx,
+                                         const uint8_t *deployment_id,
+                                         size_t len) {
+  return trust_token_set_deployment_id(&ctx->deployment_id,
+                                       &ctx->deployment_id_len,
+                                       &ctx->athm_data, ctx->method,
+                                       deployment_id, len);
+}
+
+int TRUST_TOKEN_generate_key_with_deployment_id(
+    const TRUST_TOKEN_METHOD *method, uint8_t *out_priv_key,
+    size_t *out_priv_key_len, size_t max_priv_key_len, uint8_t *out_pub_key,
+    size_t *out_pub_key_len, size_t max_pub_key_len, uint32_t id,
+    const uint8_t *deployment_id, size_t deployment_id_len) {
+  ATHM_CONTEXT_DATA data;
+  const void *method_data = nullptr;
+  if (method->is_athm) {
+    const EC_GROUP *group = EC_group_p256();
+    if (!athm_compute_h_from_deployment_id(group, &data.h, deployment_id,
+                                           deployment_id_len)) {
+      return 0;
+    }
+    data.h_initialized = 1;
+    // Stack-allocated: deployment_id pointer is borrowed, not owned.
+    data.deployment_id = const_cast<uint8_t *>(deployment_id);
+    data.deployment_id_len = deployment_id_len;
+    method_data = &data;
+  }
+
+  CBB priv_cbb, pub_cbb;
+  CBB_init_fixed(&priv_cbb, out_priv_key, max_priv_key_len);
+  CBB_init_fixed(&pub_cbb, out_pub_key, max_pub_key_len);
+  if (!CBB_add_u32(&priv_cbb, id) ||  //
+      !CBB_add_u32(&pub_cbb, id)) {
+    OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_BUFFER_TOO_SMALL);
+    return 0;
+  }
+
+  if (!method->generate_key(&priv_cbb, &pub_cbb, method_data)) {
+    return 0;
+  }
+
+  if (!CBB_finish(&priv_cbb, nullptr, out_priv_key_len) ||
+      !CBB_finish(&pub_cbb, nullptr, out_pub_key_len)) {
+    OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_BUFFER_TOO_SMALL);
+    return 0;
+  }
+
+  return 1;
+}
+
+int TRUST_TOKEN_derive_key_from_secret_with_deployment_id(
+    const TRUST_TOKEN_METHOD *method, uint8_t *out_priv_key,
+    size_t *out_priv_key_len, size_t max_priv_key_len, uint8_t *out_pub_key,
+    size_t *out_pub_key_len, size_t max_pub_key_len, uint32_t id,
+    const uint8_t *secret, size_t secret_len, const uint8_t *deployment_id,
+    size_t deployment_id_len) {
+  ATHM_CONTEXT_DATA data;
+  const void *method_data = nullptr;
+  if (method->is_athm) {
+    const EC_GROUP *group = EC_group_p256();
+    if (!athm_compute_h_from_deployment_id(group, &data.h, deployment_id,
+                                           deployment_id_len)) {
+      return 0;
+    }
+    data.h_initialized = 1;
+    // Stack-allocated: deployment_id pointer is borrowed, not owned.
+    data.deployment_id = const_cast<uint8_t *>(deployment_id);
+    data.deployment_id_len = deployment_id_len;
+    method_data = &data;
+  }
+
+  CBB priv_cbb, pub_cbb;
+  CBB_init_fixed(&priv_cbb, out_priv_key, max_priv_key_len);
+  CBB_init_fixed(&pub_cbb, out_pub_key, max_pub_key_len);
+  if (!CBB_add_u32(&priv_cbb, id) ||  //
+      !CBB_add_u32(&pub_cbb, id)) {
+    OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_BUFFER_TOO_SMALL);
+    return 0;
+  }
+
+  if (!method->derive_key_from_secret(&priv_cbb, &pub_cbb, secret, secret_len,
+                                      method_data)) {
+    return 0;
+  }
+
+  if (!CBB_finish(&priv_cbb, nullptr, out_priv_key_len) ||
+      !CBB_finish(&pub_cbb, nullptr, out_pub_key_len)) {
+    OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_BUFFER_TOO_SMALL);
+    return 0;
+  }
+
   return 1;
 }

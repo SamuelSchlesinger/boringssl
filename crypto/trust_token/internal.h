@@ -266,6 +266,67 @@ int voprf_pst1_read(const TRUST_TOKEN_ISSUER_KEY *key,
                     size_t token_len, int include_message, const uint8_t *msg,
                     size_t msg_len);
 
+// ATHM.
+//
+// ATHM (Anonymous Tokens with Hidden Metadata) is described in
+// draft-yun-cfrg-athm and provides anonymous tokens with multi-valued
+// hidden metadata. Uses P-256 with 4 hidden metadata buckets.
+//
+// Key field mapping in TRUST_TOKEN_ISSUER_KEY:
+//   x0 = x, y0 = y, x1 = r_x, y1 = r_y, xs = z
+//   pub0 = C_x, pub1 = C_y, pubs = Z
+//
+// ATHM only uses |pub0|, |pub1|, |pubs| fields of TRUST_TOKEN_CLIENT_KEY and
+// scalar fields |x0|, |y0|, |x1|, |y1|, |xs| plus all public key fields of
+// TRUST_TOKEN_ISSUER_KEY.
+
+// ATHM_CONTEXT_DATA holds per-context ATHM data (the cached generator H and
+// deployment_id for constructing DSTs).
+typedef struct {
+  EC_JACOBIAN h;
+  int h_initialized;
+  uint8_t *deployment_id;
+  size_t deployment_id_len;
+} ATHM_CONTEXT_DATA;
+
+// athm_compute_h_from_deployment_id computes the ATHM generator H for the
+// given deployment_id. If |deployment_id_len| is 0, the default (empty)
+// deployment_id is used.
+int athm_compute_h_from_deployment_id(const EC_GROUP *group,
+                                      EC_JACOBIAN *out_h,
+                                      const uint8_t *deployment_id,
+                                      size_t deployment_id_len);
+
+int athm_v1_generate_key(CBB *out_private, CBB *out_public,
+                         const void *method_data);
+int athm_v1_derive_key_from_secret(CBB *out_private, CBB *out_public,
+                                   const uint8_t *secret, size_t secret_len,
+                                   const void *method_data);
+int athm_v1_client_key_from_bytes(TRUST_TOKEN_CLIENT_KEY *key,
+                                  const uint8_t *in, size_t len,
+                                  const void *method_data);
+int athm_v1_issuer_key_from_bytes(TRUST_TOKEN_ISSUER_KEY *key,
+                                  const uint8_t *in, size_t len,
+                                  const void *method_data);
+STACK_OF(TRUST_TOKEN_PRETOKEN) *athm_v1_blind(
+    CBB *cbb, size_t count, int include_message, const uint8_t *msg,
+    size_t msg_len, const TRUST_TOKEN_CLIENT_KEY *key);
+int athm_v1_sign(const TRUST_TOKEN_ISSUER_KEY *key, CBB *cbb, CBS *cbs,
+                 size_t num_requested, size_t num_to_issue,
+                 uint8_t private_metadata, const void *method_data);
+STACK_OF(TRUST_TOKEN) *athm_v1_unblind(
+    const TRUST_TOKEN_CLIENT_KEY *key,
+    const STACK_OF(TRUST_TOKEN_PRETOKEN) *pretokens, CBS *cbs, size_t count,
+    uint32_t key_id, const void *method_data);
+int athm_v1_read(const TRUST_TOKEN_ISSUER_KEY *key,
+                 uint8_t out_nonce[TRUST_TOKEN_NONCE_SIZE],
+                 uint8_t *out_private_metadata, const uint8_t *token,
+                 size_t token_len, int include_message,
+                 const uint8_t *msg, size_t msg_len);
+
+// athm_v1_get_h_for_testing returns H in uncompressed coordinates.
+OPENSSL_EXPORT int athm_v1_get_h_for_testing(uint8_t out[65]);
+
 using StackOfTrustTokenPretoken = STACK_OF(TRUST_TOKEN_PRETOKEN);
 
 BSSL_NAMESPACE_END
@@ -407,6 +468,13 @@ struct trust_token_client_st {
 
   // srr_key is the public key used to verify the signature of the SRR.
   EVP_PKEY *srr_key;
+
+  // deployment_id is the deployment identifier for ATHM methods.
+  uint8_t *deployment_id;
+  size_t deployment_id_len;
+
+  // athm_data holds the cached ATHM generator H. Owned. NULL for non-ATHM.
+  bssl::ATHM_CONTEXT_DATA *athm_data;
 };
 
 
@@ -431,6 +499,13 @@ struct trust_token_issuer_st {
   // in the SRR.
   uint8_t *metadata_key;
   size_t metadata_key_len;
+
+  // deployment_id is the deployment identifier for ATHM methods.
+  uint8_t *deployment_id;
+  size_t deployment_id_len;
+
+  // athm_data holds the cached ATHM generator H. Owned. NULL for non-ATHM.
+  bssl::ATHM_CONTEXT_DATA *athm_data;
 };
 
 BSSL_NAMESPACE_BEGIN
