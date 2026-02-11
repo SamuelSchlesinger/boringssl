@@ -564,6 +564,19 @@ int EC_encode_to_curve_p384_xmd_sha384_sswu(const EC_GROUP *group,
                                                  msg, msg_len);
 }
 
+int bssl::ec_hash_to_scalar_p256_xmd_sha256(const EC_GROUP *group,
+                                            EC_SCALAR *out, const uint8_t *dst,
+                                            size_t dst_len, const uint8_t *msg,
+                                            size_t msg_len) {
+  if (EC_GROUP_get_curve_name(group) != NID_X9_62_prime256v1) {
+    OPENSSL_PUT_ERROR(EC, EC_R_GROUP_MISMATCH);
+    return 0;
+  }
+
+  return hash_to_scalar(group, EVP_sha256(), out, dst, dst_len, /*k=*/128, msg,
+                        msg_len);
+}
+
 int bssl::ec_hash_to_scalar_p384_xmd_sha384(const EC_GROUP *group,
                                             EC_SCALAR *out, const uint8_t *dst,
                                             size_t dst_len, const uint8_t *msg,
