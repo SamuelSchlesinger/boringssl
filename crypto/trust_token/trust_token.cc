@@ -44,8 +44,10 @@ const TRUST_TOKEN_METHOD *TRUST_TOKEN_experiment_v1() {
       pmbtoken_exp1_unblind,
       pmbtoken_exp1_read,
       1, /* has_private_metadata */
+      2, /* max_private_metadata */
       3, /* max_keys */
       1, /* has_srr */
+      0, /* is_athm */
   };
   return &kMethod;
 }
@@ -61,8 +63,10 @@ const TRUST_TOKEN_METHOD *TRUST_TOKEN_experiment_v2_voprf() {
       voprf_exp2_unblind,
       voprf_exp2_read,
       0, /* has_private_metadata */
+      1, /* max_private_metadata */
       6, /* max_keys */
       0, /* has_srr */
+      0, /* is_athm */
   };
   return &kMethod;
 }
@@ -78,8 +82,10 @@ const TRUST_TOKEN_METHOD *TRUST_TOKEN_experiment_v2_pmb() {
       pmbtoken_exp2_unblind,
       pmbtoken_exp2_read,
       1, /* has_private_metadata */
+      2, /* max_private_metadata */
       3, /* max_keys */
       0, /* has_srr */
+      0, /* is_athm */
   };
   return &kMethod;
 }
@@ -95,8 +101,10 @@ const TRUST_TOKEN_METHOD *TRUST_TOKEN_pst_v1_voprf() {
       voprf_pst1_unblind,
       voprf_pst1_read,
       0, /* has_private_metadata */
+      1, /* max_private_metadata */
       6, /* max_keys */
       0, /* has_srr */
+      0, /* is_athm */
   };
   return &kMethod;
 }
@@ -112,8 +120,10 @@ const TRUST_TOKEN_METHOD *TRUST_TOKEN_pst_v1_pmb() {
       pmbtoken_pst1_unblind,
       pmbtoken_pst1_read,
       1, /* has_private_metadata */
+      2, /* max_private_metadata */
       3, /* max_keys */
       0, /* has_srr */
+      0, /* is_athm */
   };
   return &kMethod;
 }
@@ -160,7 +170,7 @@ int TRUST_TOKEN_generate_key(const TRUST_TOKEN_METHOD *method,
     return 0;
   }
 
-  if (!method->generate_key(&priv_cbb, &pub_cbb)) {
+  if (!method->generate_key(&priv_cbb, &pub_cbb, /*method_data=*/nullptr)) {
     return 0;
   }
 
@@ -188,8 +198,8 @@ int TRUST_TOKEN_derive_key_from_secret(
     return 0;
   }
 
-  if (!method->derive_key_from_secret(&priv_cbb, &pub_cbb, secret,
-                                      secret_len)) {
+  if (!method->derive_key_from_secret(&priv_cbb, &pub_cbb, secret, secret_len,
+                                      /*method_data=*/nullptr)) {
     return 0;
   }
 
@@ -269,7 +279,8 @@ int TRUST_TOKEN_CLIENT_add_key(TRUST_TOKEN_CLIENT *ctx, size_t *out_key_index,
   uint32_t key_id;
   if (!CBS_get_u32(&cbs, &key_id) ||
       !ctx->method->client_key_from_bytes(&key_s->key, CBS_data(&cbs),
-                                          CBS_len(&cbs))) {
+                                          CBS_len(&cbs),
+                                          /*method_data=*/nullptr)) {
     OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_DECODE_FAILURE);
     return 0;
   }
@@ -303,8 +314,8 @@ static int trust_token_client_begin_issuance_impl(
     goto err;
   }
 
-  pretokens =
-      ctx->method->blind(&request, count, include_message, msg, msg_len);
+  pretokens = ctx->method->blind(&request, count, include_message, msg, msg_len,
+                                 /*key=*/nullptr);
   if (pretokens == nullptr) {
     goto err;
   }
@@ -371,8 +382,8 @@ STACK_OF(TRUST_TOKEN) *TRUST_TOKEN_CLIENT_finish_issuance(
     return nullptr;
   }
 
-  STACK_OF(TRUST_TOKEN) *tokens =
-      ctx->method->unblind(&key->key, ctx->pretokens, &in, count, key_id);
+  STACK_OF(TRUST_TOKEN) *tokens = ctx->method->unblind(
+      &key->key, ctx->pretokens, &in, count, key_id, /*method_data=*/nullptr);
   if (tokens == nullptr) {
     return nullptr;
   }
@@ -506,7 +517,8 @@ int TRUST_TOKEN_ISSUER_add_key(TRUST_TOKEN_ISSUER *ctx, const uint8_t *key,
   uint32_t key_id;
   if (!CBS_get_u32(&cbs, &key_id) ||
       !ctx->method->issuer_key_from_bytes(&key_s->key, CBS_data(&cbs),
-                                          CBS_len(&cbs))) {
+                                          CBS_len(&cbs),
+                                          /*method_data=*/nullptr)) {
     OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_DECODE_FAILURE);
     return 0;
   }
@@ -527,6 +539,7 @@ int TRUST_TOKEN_ISSUER_set_metadata_key(TRUST_TOKEN_ISSUER *ctx,
                                         const uint8_t *key, size_t len) {
   if (len < 32) {
     OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_INVALID_METADATA_KEY);
+    return 0;
   }
   OPENSSL_free(ctx->metadata_key);
   ctx->metadata_key_len = 0;
@@ -559,8 +572,8 @@ int TRUST_TOKEN_ISSUER_issue(const TRUST_TOKEN_ISSUER *ctx, uint8_t **out,
 
   const struct trust_token_issuer_key_st *key =
       trust_token_issuer_get_key(ctx, public_metadata);
-  if (key == nullptr || private_metadata > 1 ||
-      (!ctx->method->has_private_metadata && private_metadata != 0)) {
+  if (key == nullptr ||
+      private_metadata >= ctx->method->max_private_metadata) {
     OPENSSL_PUT_ERROR(TRUST_TOKEN, TRUST_TOKEN_R_INVALID_METADATA);
     return 0;
   }
@@ -586,7 +599,7 @@ int TRUST_TOKEN_ISSUER_issue(const TRUST_TOKEN_ISSUER *ctx, uint8_t **out,
   }
 
   if (!ctx->method->sign(&key->key, &response, &in, num_requested, num_to_issue,
-                         private_metadata)) {
+                         private_metadata, /*method_data=*/nullptr)) {
     goto err;
   }
 
